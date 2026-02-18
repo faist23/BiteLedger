@@ -50,13 +50,59 @@ final class FoodLog {
         self.carbs = foodItem.carbsPer100g * multiplier
         self.fat = foodItem.fatPer100g * multiplier
     }
+    
+    /// Format the serving display text (e.g., "2 tbsp" or "1.5 cups")
+    var servingDisplayText: String {
+        guard let foodItem = foodItem else {
+            return String(format: "%.0fg", totalGrams)
+        }
+        
+        // Extract just the unit from servingDescription (e.g., "15.97tbsp" -> "tbsp")
+        let description = foodItem.servingDescription
+        
+        // Try to extract unit abbreviation (non-numeric characters)
+        let unit = description.components(separatedBy: CharacterSet.decimalDigits.union(CharacterSet(charactersIn: "."))).joined()
+        
+        if !unit.isEmpty {
+            // Format: "2 tbsp" or "1.5 cups"
+            if servingMultiplier.truncatingRemainder(dividingBy: 1) == 0 {
+                // Whole number
+                return "\(Int(servingMultiplier)) \(unit)"
+            } else {
+                // Decimal
+                return String(format: "%.1f %@", servingMultiplier, unit)
+            }
+        }
+        
+        // Fallback to showing grams
+        return String(format: "%.0fg", totalGrams)
+    }
+    
+    /// Convenience initializer with servings
+    convenience init(
+        foodItem: FoodItem,
+        servings: Double,
+        mealType: MealType,
+        timestamp: Date = Date()
+    ) {
+        let totalGrams = foodItem.gramsPerServing * servings
+        self.init(
+            foodItem: foodItem,
+            timestamp: timestamp,
+            meal: mealType,
+            servingMultiplier: servings,
+            totalGrams: totalGrams
+        )
+    }
 }
 
-enum MealType: String, Codable, CaseIterable {
+enum MealType: String, Codable, CaseIterable, Identifiable {
     case breakfast = "Breakfast"
     case lunch = "Lunch"
     case dinner = "Dinner"
     case snack = "Snack"
+    
+    var id: String { rawValue }
     
     var icon: String {
         switch self {

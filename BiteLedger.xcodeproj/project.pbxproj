@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		7E89B5872F439A4600B23EA8 /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = 7E89B5862F439A4000B23EA8 /* .gitignore */; };
+		7E89B5892F439B9E00B23EA8 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 7E89B5882F439B9E00B23EA8 /* README.md */; };
+		7E89B5A92F45FCBE00B23EA8 /* CAMERA_SETUP.md in Resources */ = {isa = PBXBuildFile; fileRef = 7E89B5A82F45FCBE00B23EA8 /* CAMERA_SETUP.md */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		7E89B54E2F43963D00B23EA8 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,6 +33,9 @@
 		7E89B53E2F43963C00B23EA8 /* BiteLedger.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BiteLedger.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7E89B54D2F43963D00B23EA8 /* BiteLedgerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BiteLedgerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7E89B5572F43963D00B23EA8 /* BiteLedgerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BiteLedgerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7E89B5862F439A4000B23EA8 /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
+		7E89B5882F439B9E00B23EA8 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		7E89B5A82F45FCBE00B23EA8 /* CAMERA_SETUP.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CAMERA_SETUP.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -75,10 +84,13 @@
 		7E89B5352F43963C00B23EA8 = {
 			isa = PBXGroup;
 			children = (
+				7E89B5862F439A4000B23EA8 /* .gitignore */,
+				7E89B5882F439B9E00B23EA8 /* README.md */,
 				7E89B5402F43963C00B23EA8 /* BiteLedger */,
 				7E89B5502F43963D00B23EA8 /* BiteLedgerTests */,
 				7E89B55A2F43963D00B23EA8 /* BiteLedgerUITests */,
 				7E89B53F2F43963C00B23EA8 /* Products */,
+				7E89B5A82F45FCBE00B23EA8 /* CAMERA_SETUP.md */,
 			);
 			sourceTree = "<group>";
 		};
@@ -212,6 +224,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7E89B5872F439A4600B23EA8 /* .gitignore in Resources */,
+				7E89B5892F439B9E00B23EA8 /* README.md in Resources */,
+				7E89B5A92F45FCBE00B23EA8 /* CAMERA_SETUP.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -407,8 +422,8 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -444,8 +459,8 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
