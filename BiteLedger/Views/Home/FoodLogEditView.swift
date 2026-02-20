@@ -159,7 +159,7 @@ struct FoodLogEditView: View {
                     Spacer()
                 }
                 .padding()
-                .background(Color(.systemGroupedBackground))
+                .background(Color("SurfaceBackground"))
                 
                 Spacer()
                 
@@ -168,7 +168,7 @@ struct FoodLogEditView: View {
                     Text("NUTRITION FACTS")
                         .font(.caption)
                         .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color("TextSecondary"))
                     
                     Spacer()
                     
@@ -178,56 +178,61 @@ struct FoodLogEditView: View {
                         Text("EDIT NUTRITION")
                             .font(.caption)
                             .fontWeight(.semibold)
-                            .foregroundStyle(.orange)
+                        .foregroundStyle(Color("BrandAccent"))
                     }
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 8)
                 
                 // Nutrition display - LoseIt style
-                HStack(alignment: .top, spacing: 40) {
-                    // Large calorie display on left
-                    VStack(spacing: 4) {
-                        Text("\(Int(calculatedNutrition.caloriesPer100g))")
-                            .font(.system(size: 56, weight: .bold))
-                        Text("Calories")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                VStack {
+                    HStack(alignment: .top, spacing: 40) {
+                        // Large calorie display on left
+                        VStack(spacing: 4) {
+                            Text("\(Int(calculatedNutrition.caloriesPer100g))")
+                                .font(.system(size: 56, weight: .bold))
+                            Text("Calories")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        // Detailed nutrition on right
+                        VStack(alignment: .leading, spacing: 4) {
+                            NutritionRow(label: "Total Fat", value: calculatedNutrition.fatPer100g, unit: "g")
+                            if let satFat = foodItem.saturatedFatPer100g {
+                                NutritionRow(label: "  Sat Fat", value: satFat * nutritionMultiplier, unit: "g", isSubItem: true)
+                            }
+                            if let cholesterol = foodItem.cholesterolPer100g {
+                                NutritionRow(label: "  Cholesterol", value: cholesterol * nutritionMultiplier, unit: "mg", isSubItem: true)
+                            }
+                            if let sodium = calculatedNutrition.sodiumPer100g {
+                                NutritionRow(label: "Sodium", value: sodium, unit: "mg")
+                            }
+                            
+                            Divider()
+                                .padding(.vertical, 2)
+                            
+                            NutritionRow(label: "Total Carbs", value: calculatedNutrition.carbsPer100g, unit: "g")
+                            if let fiber = calculatedNutrition.fiberPer100g {
+                                NutritionRow(label: "  Fiber", value: fiber, unit: "g", isSubItem: true)
+                            }
+                            if let sugar = calculatedNutrition.sugarPer100g {
+                                NutritionRow(label: "  Sugars", value: sugar, unit: "g", isSubItem: true)
+                            }
+                            
+                            Divider()
+                                .padding(.vertical, 2)
+                            
+                            NutritionRow(label: "Protein", value: calculatedNutrition.proteinPer100g, unit: "g")
+                        }
+                        .font(.caption)
                     }
-                    
-                    // Detailed nutrition on right
-                    VStack(alignment: .leading, spacing: 4) {
-                        NutritionRow(label: "Total Fat", value: calculatedNutrition.fatPer100g, unit: "g")
-                        if let satFat = foodItem.saturatedFatPer100g {
-                            NutritionRow(label: "  Sat Fat", value: satFat * nutritionMultiplier, unit: "g", isSubItem: true)
-                        }
-                        if let cholesterol = foodItem.cholesterolPer100g {
-                            NutritionRow(label: "  Cholesterol", value: cholesterol * nutritionMultiplier, unit: "mg", isSubItem: true)
-                        }
-                        if let sodium = calculatedNutrition.sodiumPer100g {
-                            NutritionRow(label: "Sodium", value: sodium, unit: "mg")
-                        }
-                        
-                        Divider()
-                            .padding(.vertical, 2)
-                        
-                        NutritionRow(label: "Total Carbs", value: calculatedNutrition.carbsPer100g, unit: "g")
-                        if let fiber = calculatedNutrition.fiberPer100g {
-                            NutritionRow(label: "  Fiber", value: fiber, unit: "g", isSubItem: true)
-                        }
-                        if let sugar = calculatedNutrition.sugarPer100g {
-                            NutritionRow(label: "  Sugars", value: sugar, unit: "g", isSubItem: true)
-                        }
-                        
-                        Divider()
-                            .padding(.vertical, 2)
-                        
-                        NutritionRow(label: "Protein", value: calculatedNutrition.proteinPer100g, unit: "g")
-                    }
-                    .font(.caption)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical)
+                .padding(24)
+                .background(Color("SurfacePrimary"))
+                .clipShape(RoundedRectangle(cornerRadius: 24))
+                .shadow(color: .black.opacity(0.05), radius: 12, y: 6)
+                .padding(.horizontal)
                 
                 Spacer()
                 
@@ -267,7 +272,9 @@ struct FoodLogEditView: View {
                     .frame(maxWidth: .infinity)
                 }
                 .frame(height: 150)
-                .background(Color(.secondarySystemGroupedBackground))
+                .background(Color("SurfacePrimary"))
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
+                    .shadow(color: .black.opacity(0.05), radius: 12, y: 6)
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Edit Food")
@@ -320,21 +327,28 @@ struct FoodLogEditView: View {
 
 // MARK: - Nutrition Editor View
 
+// MARK: - Nutrition Editor View
+
 struct NutritionEditorView: View {
     @Environment(\.dismiss) private var dismiss
     
     let foodItem: FoodItem
     
+    // Serving size
+    @State private var servingDescription: String
+    @State private var gramsPerServing: String
+    
+    // Nutrition per serving
     @State private var calories: String
-    @State private var protein: String
-    @State private var carbs: String
-    @State private var fat: String
-    @State private var fiber: String
-    @State private var sugar: String
+    @State private var totalFat: String
     @State private var saturatedFat: String
     @State private var transFat: String
     @State private var cholesterol: String
     @State private var sodium: String
+    @State private var totalCarbs: String
+    @State private var fiber: String
+    @State private var sugar: String
+    @State private var protein: String
     @State private var vitaminA: String
     @State private var vitaminC: String
     @State private var vitaminD: String
@@ -345,220 +359,219 @@ struct NutritionEditorView: View {
     init(foodItem: FoodItem) {
         self.foodItem = foodItem
         
-        _calories = State(initialValue: String(format: "%.1f", foodItem.caloriesPer100g))
-        _protein = State(initialValue: String(format: "%.1f", foodItem.proteinPer100g))
-        _carbs = State(initialValue: String(format: "%.1f", foodItem.carbsPer100g))
-        _fat = State(initialValue: String(format: "%.1f", foodItem.fatPer100g))
-        _fiber = State(initialValue: String(format: "%.1f", foodItem.fiberPer100g ?? 0))
-        _sugar = State(initialValue: String(format: "%.1f", foodItem.sugarPer100g ?? 0))
-        _saturatedFat = State(initialValue: String(format: "%.1f", (foodItem.saturatedFatPer100g ?? 0) * 1000))
-        _transFat = State(initialValue: String(format: "%.1f", (foodItem.transFatPer100g ?? 0) * 1000))
-        _cholesterol = State(initialValue: String(format: "%.1f", (foodItem.cholesterolPer100g ?? 0) * 1000))
-        _sodium = State(initialValue: String(format: "%.1f", (foodItem.sodiumPer100g ?? 0) * 1000))
-        _vitaminA = State(initialValue: String(format: "%.1f", (foodItem.vitaminAPer100g ?? 0) * 1000))
-        _vitaminC = State(initialValue: String(format: "%.1f", (foodItem.vitaminCPer100g ?? 0) * 1000))
-        _vitaminD = State(initialValue: String(format: "%.1f", (foodItem.vitaminDPer100g ?? 0) * 1000))
-        _calcium = State(initialValue: String(format: "%.1f", (foodItem.calciumPer100g ?? 0) * 1000))
-        _iron = State(initialValue: String(format: "%.1f", (foodItem.ironPer100g ?? 0) * 1000))
-        _potassium = State(initialValue: String(format: "%.1f", (foodItem.potassiumPer100g ?? 0) * 1000))
+        _servingDescription = State(initialValue: foodItem.servingDescription)
+        _gramsPerServing = State(initialValue: String(format: "%.0f", foodItem.gramsPerServing))
+        
+        let servingMultiplier = foodItem.gramsPerServing / 100.0
+        
+        _calories = State(initialValue: String(format: "%.0f", foodItem.caloriesPer100g * servingMultiplier))
+        _totalFat = State(initialValue: String(format: "%.1f", foodItem.fatPer100g * servingMultiplier))
+        _saturatedFat = State(initialValue: String(format: "%.1f", (foodItem.saturatedFatPer100g ?? 0) * servingMultiplier))
+        _transFat = State(initialValue: String(format: "%.1f", (foodItem.transFatPer100g ?? 0) * servingMultiplier))
+        _cholesterol = State(initialValue: String(format: "%.0f", (foodItem.cholesterolPer100g ?? 0) * 1000 * servingMultiplier))
+        _sodium = State(initialValue: String(format: "%.0f", (foodItem.sodiumPer100g ?? 0) * 1000 * servingMultiplier))
+        _totalCarbs = State(initialValue: String(format: "%.1f", foodItem.carbsPer100g * servingMultiplier))
+        _fiber = State(initialValue: String(format: "%.1f", (foodItem.fiberPer100g ?? 0) * servingMultiplier))
+        _sugar = State(initialValue: String(format: "%.1f", (foodItem.sugarPer100g ?? 0) * servingMultiplier))
+        _protein = State(initialValue: String(format: "%.1f", foodItem.proteinPer100g * servingMultiplier))
+        _vitaminA = State(initialValue: String(format: "%.0f", (foodItem.vitaminAPer100g ?? 0) * 1_000_000 * servingMultiplier))
+        _vitaminC = State(initialValue: String(format: "%.0f", (foodItem.vitaminCPer100g ?? 0) * 1000 * servingMultiplier))
+        _vitaminD = State(initialValue: String(format: "%.0f", (foodItem.vitaminDPer100g ?? 0) * 1_000_000 * servingMultiplier))
+        _calcium = State(initialValue: String(format: "%.0f", (foodItem.calciumPer100g ?? 0) * 1000 * servingMultiplier))
+        _iron = State(initialValue: String(format: "%.1f", (foodItem.ironPer100g ?? 0) * 1000 * servingMultiplier))
+        _potassium = State(initialValue: String(format: "%.0f", (foodItem.potassiumPer100g ?? 0) * 1000 * servingMultiplier))
     }
     
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Macronutrients (per 100g)") {
-                    HStack {
-                        Text("Calories")
-                        Spacer()
-                        TextField("0", text: $calories)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
+            ScrollView {
+                VStack(spacing: 16) {
                     
-                    HStack {
-                        Text("Protein (g)")
-                        Spacer()
-                        TextField("0", text: $protein)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                    
-                    HStack {
-                        Text("Carbs (g)")
-                        Spacer()
-                        TextField("0", text: $carbs)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                    
-                    HStack {
-                        Text("Fat (g)")
-                        Spacer()
-                        TextField("0", text: $fat)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                    
-                    HStack {
-                        Text("Fiber (g)")
-                        Spacer()
-                        TextField("0", text: $fiber)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                    
-                    HStack {
-                        Text("Sugar (g)")
-                        Spacer()
-                        TextField("0", text: $sugar)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
+                    nutritionCard
                 }
-                
-                Section("Fats (mg per 100g)") {
-                    HStack {
-                        Text("Saturated Fat")
-                        Spacer()
-                        TextField("0", text: $saturatedFat)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                    
-                    HStack {
-                        Text("Trans Fat")
-                        Spacer()
-                        TextField("0", text: $transFat)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                }
-                
-                Section("Other Nutrients (mg per 100g)") {
-                    HStack {
-                        Text("Cholesterol")
-                        Spacer()
-                        TextField("0", text: $cholesterol)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                    
-                    HStack {
-                        Text("Sodium")
-                        Spacer()
-                        TextField("0", text: $sodium)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                }
-                
-                Section("Vitamins & Minerals") {
-                    HStack {
-                        Text("Vitamin A (μg)")
-                        Spacer()
-                        TextField("0", text: $vitaminA)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                    
-                    HStack {
-                        Text("Vitamin C (mg)")
-                        Spacer()
-                        TextField("0", text: $vitaminC)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                    
-                    HStack {
-                        Text("Vitamin D (μg)")
-                        Spacer()
-                        TextField("0", text: $vitaminD)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                    
-                    HStack {
-                        Text("Calcium (mg)")
-                        Spacer()
-                        TextField("0", text: $calcium)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                    
-                    HStack {
-                        Text("Iron (mg)")
-                        Spacer()
-                        TextField("0", text: $iron)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                    
-                    HStack {
-                        Text("Potassium (mg)")
-                        Spacer()
-                        TextField("0", text: $potassium)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                    }
-                }
+                .padding()
             }
+            .background(Color("SurfaceBackground"))
             .navigationTitle("Edit Nutrition")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(Color("TextSecondary"))
                 }
                 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        saveNutrition()
-                    }
-                    .fontWeight(.semibold)
+                    Button("Save") { saveNutrition() }
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color("BrandAccent"))
                 }
             }
         }
     }
+}
+
+private extension NutritionEditorView {
     
-    private func saveNutrition() {
-        // Update foodItem with new values
-        foodItem.caloriesPer100g = Double(calories) ?? foodItem.caloriesPer100g
-        foodItem.proteinPer100g = Double(protein) ?? foodItem.proteinPer100g
-        foodItem.carbsPer100g = Double(carbs) ?? foodItem.carbsPer100g
-        foodItem.fatPer100g = Double(fat) ?? foodItem.fatPer100g
-        foodItem.fiberPer100g = Double(fiber) ?? 0
-        foodItem.sugarPer100g = Double(sugar) ?? 0
+    var nutritionCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            
+            Text("Nutrition Facts")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(Color("TextPrimary"))
+            
+            Divider().background(Color("TextPrimary"))
+            
+            servingRow
+            Divider()
+            
+            caloriesRow
+            
+            thickDivider
+            
+            fatSection
+            Divider()
+            
+            carbsSection
+            Divider()
+            
+            proteinRow
+            
+            thickDivider
+            
+            vitaminSection
+        }
+        .padding(20)
+        .background(Color("SurfacePrimary"))
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .shadow(color: .black.opacity(0.05), radius: 10, y: 6)
+    }
+    
+    var thickDivider: some View {
+        Rectangle()
+            .fill(Color("TextPrimary"))
+            .frame(height: 4)
+    }
+    
+    var servingRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Serving Size")
+                Spacer()
+                TextField("1 cup", text: $servingDescription)
+                    .multilineTextAlignment(.trailing)
+            }
+            
+            HStack {
+                Text("Grams per Serving")
+                Spacer()
+                TextField("0", text: $gramsPerServing)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                Text("g")
+                    .foregroundStyle(Color("TextSecondary"))
+            }
+        }
+        .font(.subheadline)
+    }
+    
+    var caloriesRow: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Calories")
+                .font(.system(size: 22, weight: .bold))
+            
+            Spacer()
+            
+            TextField("0", text: $calories)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .font(.system(size: 36, weight: .bold))
+                .frame(width: 120)
+        }
+    }
+    
+    var fatSection: some View {
+        VStack(spacing: 6) {
+            labelRow("Total Fat", $totalFat, "g", bold: true)
+            labelRow("Saturated Fat", $saturatedFat, "g", indent: true)
+            labelRow("Trans Fat", $transFat, "g", indent: true)
+            labelRow("Cholesterol", $cholesterol, "mg")
+            labelRow("Sodium", $sodium, "mg")
+        }
+    }
+    
+    var carbsSection: some View {
+        VStack(spacing: 6) {
+            labelRow("Total Carbohydrate", $totalCarbs, "g", bold: true)
+            labelRow("Dietary Fiber", $fiber, "g", indent: true)
+            labelRow("Total Sugars", $sugar, "g", indent: true)
+        }
+    }
+    
+    var proteinRow: some View {
+        labelRow("Protein", $protein, "g", bold: true)
+    }
+    
+    var vitaminSection: some View {
+        VStack(spacing: 6) {
+            labelRow("Vitamin A", $vitaminA, "μg")
+            labelRow("Vitamin C", $vitaminC, "mg")
+            labelRow("Vitamin D", $vitaminD, "μg")
+            labelRow("Calcium", $calcium, "mg")
+            labelRow("Iron", $iron, "mg")
+            labelRow("Potassium", $potassium, "mg")
+        }
+    }
+    
+    func labelRow(
+        _ title: String,
+        _ binding: Binding<String>,
+        _ unit: String,
+        bold: Bool = false,
+        indent: Bool = false
+    ) -> some View {
+        HStack {
+            Text(indent ? "  \(title)" : title)
+                .fontWeight(bold ? .semibold : .regular)
+            
+            Spacer()
+            
+            TextField("0", text: binding)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 80)
+            
+            Text(unit)
+                .foregroundStyle(Color("TextSecondary"))
+        }
+        .font(.subheadline)
+    }
+    
+    func saveNutrition() {
+        foodItem.servingDescription = servingDescription
+        let newGramsPerServing = Double(gramsPerServing) ?? foodItem.gramsPerServing
+        foodItem.gramsPerServing = newGramsPerServing
         
-        // Convert mg to grams for storage
-        foodItem.saturatedFatPer100g = (Double(saturatedFat) ?? 0) / 1000
-        foodItem.transFatPer100g = (Double(transFat) ?? 0) / 1000
-        foodItem.cholesterolPer100g = (Double(cholesterol) ?? 0) / 1000
-        foodItem.sodiumPer100g = (Double(sodium) ?? 0) / 1000
+        let divisor = newGramsPerServing / 100.0
         
-        // Convert to grams for storage
-        foodItem.vitaminAPer100g = (Double(vitaminA) ?? 0) / 1000
-        foodItem.vitaminCPer100g = (Double(vitaminC) ?? 0) / 1000
-        foodItem.vitaminDPer100g = (Double(vitaminD) ?? 0) / 1000
-        foodItem.calciumPer100g = (Double(calcium) ?? 0) / 1000
-        foodItem.ironPer100g = (Double(iron) ?? 0) / 1000
-        foodItem.potassiumPer100g = (Double(potassium) ?? 0) / 1000
+        foodItem.caloriesPer100g = (Double(calories) ?? foodItem.caloriesPer100g) / divisor
+        foodItem.proteinPer100g = (Double(protein) ?? foodItem.proteinPer100g) / divisor
+        foodItem.carbsPer100g = (Double(totalCarbs) ?? foodItem.carbsPer100g) / divisor
+        foodItem.fatPer100g = (Double(totalFat) ?? foodItem.fatPer100g) / divisor
+        foodItem.fiberPer100g = (Double(fiber) ?? 0) / divisor
+        foodItem.sugarPer100g = (Double(sugar) ?? 0) / divisor
+        
+        foodItem.saturatedFatPer100g = (Double(saturatedFat) ?? 0) / divisor
+        foodItem.transFatPer100g = (Double(transFat) ?? 0) / divisor
+        
+        foodItem.cholesterolPer100g = ((Double(cholesterol) ?? 0) / 1000) / divisor
+        foodItem.sodiumPer100g = ((Double(sodium) ?? 0) / 1000) / divisor
+        
+        foodItem.vitaminAPer100g = ((Double(vitaminA) ?? 0) / 1_000_000) / divisor
+        foodItem.vitaminCPer100g = ((Double(vitaminC) ?? 0) / 1000) / divisor
+        foodItem.vitaminDPer100g = ((Double(vitaminD) ?? 0) / 1_000_000) / divisor
+        foodItem.calciumPer100g = ((Double(calcium) ?? 0) / 1000) / divisor
+        foodItem.ironPer100g = ((Double(iron) ?? 0) / 1000) / divisor
+        foodItem.potassiumPer100g = ((Double(potassium) ?? 0) / 1000) / divisor
         
         dismiss()
     }

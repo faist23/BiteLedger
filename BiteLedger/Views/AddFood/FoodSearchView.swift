@@ -172,12 +172,64 @@ struct FoodSearchView: View {
                 } description: {
                     Text("Try a different search term or use manual entry")
                 }
-            } else if searchResults.isEmpty {
-                ContentUnavailableView {
-                    Label("Search for Food", systemImage: "magnifyingglass")
-                } description: {
-                    Text("Search by name or scan a barcode")
-                }
+            } else if searchResults.isEmpty && searchText.isEmpty {
+                // Show recent foods for this meal type
+                RecentFoodsForMealView(
+                    allLogs: allLogs,
+                    mealType: mealType,
+                    onFoodSelected: { foodItem in
+                        // Find the most recent log entry for this food item
+                        let mostRecentLog = allLogs.first { $0.foodItem?.id == foodItem.id }
+                        let lastServingAmount = mostRecentLog?.servingMultiplier ?? 1.0
+                        
+                        let servingSizeString: String
+                        if let recentLog = mostRecentLog {
+                            servingSizeString = "\(recentLog.servingMultiplier) \(foodItem.servingDescription) (\(Int(recentLog.totalGrams))g)"
+                        } else {
+                            servingSizeString = "\(foodItem.servingDescription) (\(Int(foodItem.gramsPerServing))g)"
+                        }
+                        
+                        let productInfo = ProductInfo(
+                            code: foodItem.barcode ?? "",
+                            productName: foodItem.name,
+                            brands: foodItem.brand,
+                            imageUrl: foodItem.imageURL,
+                            nutriments: Nutriments(
+                                energyKcal100g: FlexibleDouble(foodItem.caloriesPer100g),
+                                energyKcalComputed: foodItem.caloriesPer100g,
+                                proteins100g: FlexibleDouble(foodItem.proteinPer100g),
+                                carbohydrates100g: FlexibleDouble(foodItem.carbsPer100g),
+                                sugars100g: foodItem.sugarPer100g.map { FlexibleDouble($0) },
+                                fat100g: FlexibleDouble(foodItem.fatPer100g),
+                                saturatedFat100g: foodItem.saturatedFatPer100g.map { FlexibleDouble($0) },
+                                transFat100g: foodItem.transFatPer100g.map { FlexibleDouble($0) },
+                                monounsaturatedFat100g: foodItem.monounsaturatedFatPer100g.map { FlexibleDouble($0) },
+                                polyunsaturatedFat100g: foodItem.polyunsaturatedFatPer100g.map { FlexibleDouble($0) },
+                                fiber100g: foodItem.fiberPer100g.map { FlexibleDouble($0) },
+                                sodium100g: foodItem.sodiumPer100g.map { FlexibleDouble($0) },
+                                salt100g: nil,
+                                cholesterol100g: foodItem.cholesterolPer100g.map { FlexibleDouble($0) },
+                                vitaminA100g: foodItem.vitaminAPer100g.map { FlexibleDouble($0) },
+                                vitaminC100g: foodItem.vitaminCPer100g.map { FlexibleDouble($0) },
+                                vitaminD100g: foodItem.vitaminDPer100g.map { FlexibleDouble($0) },
+                                calcium100g: foodItem.calciumPer100g.map { FlexibleDouble($0) },
+                                iron100g: foodItem.ironPer100g.map { FlexibleDouble($0) },
+                                potassium100g: foodItem.potassiumPer100g.map { FlexibleDouble($0) },
+                                energyKcalServing: nil,
+                                proteinsServing: nil,
+                                carbohydratesServing: nil,
+                                sugarsServing: nil,
+                                fatServing: nil,
+                                saturatedFatServing: nil,
+                                fiberServing: nil,
+                                sodiumServing: nil
+                            ),
+                            servingSize: servingSizeString,
+                            quantity: "\(Int(foodItem.gramsPerServing))g"
+                        )
+                        selectedProductContext = (productInfo, foodItem, lastServingAmount)
+                    }
+                )
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -643,6 +695,79 @@ struct FoodItemRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+        }
+    }
+}
+
+// MARK: - Recent Foods View
+
+struct RecentFoodsForMealView: View {
+    let allLogs: [FoodLog]
+    let mealType: MealType
+    let onFoodSelected: (FoodItem) -> Void
+    
+    private var recentFoods: [FoodItem] {
+        // Get all logs for this meal type
+        let mealLogs = allLogs.filter { $0.meal == mealType }
+        
+        // Get food items already logged today for this meal
+        let todaysFoodIDs = Set(
+            allLogs
+                .filter { Calendar.current.isDate($0.timestamp, inSameDayAs: Date()) && $0.meal == mealType }
+                .compactMap { $0.foodItem?.id }
+        )
+        
+        // Get unique food items, excluding today's foods
+        var seenFoodIDs = Set<UUID>()
+        var uniqueFoods: [FoodItem] = []
+        
+        for log in mealLogs {
+            guard let foodItem = log.foodItem else { continue }
+            
+            // Skip if already logged today
+            if todaysFoodIDs.contains(foodItem.id) { continue }
+            
+            // Skip if we've already added this food
+            if seenFoodIDs.contains(foodItem.id) { continue }
+            
+            seenFoodIDs.insert(foodItem.id)
+            uniqueFoods.append(foodItem)
+            
+            // Stop at 10 items
+            if uniqueFoods.count >= 10 { break }
+        }
+        
+        return uniqueFoods
+    }
+    
+    var body: some View {
+        Group {
+            if recentFoods.isEmpty {
+                ContentUnavailableView {
+                    Label("No Recent Foods", systemImage: "clock")
+                } description: {
+                    Text("Foods you've added to \(mealType.rawValue.lowercased()) will appear here")
+                }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Recent \(mealType.rawValue)")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal)
+                            .padding(.top, 8)
+                        
+                        LazyVStack(spacing: 8) {
+                            ForEach(recentFoods, id: \.id) { foodItem in
+                                FoodItemRow(foodItem: foodItem, onTap: {
+                                    onFoodSelected(foodItem)
+                                })
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+            }
         }
     }
 }

@@ -29,17 +29,26 @@ struct NutritionLabelParser {
         var data = NutritionData()
         var foundAnyData = false
         
-        // Join all lines for easier processing
-        let fullText = lines.joined(separator: "\n").lowercased()
-        
-        print("🔍 Parsing nutrition label text:")
-        print(fullText)
+        print("🔍 Parsing nutrition label text (\(lines.count) lines):")
+        for (index, line) in lines.enumerated() {
+            print("Line \(index): \"\(line)\"")
+        }
         print("---")
+        
+        // Join all lines for easier processing
+        let fullText = lines.joined(separator: " ").lowercased()
         
         // Check if this looks like a nutrition label
         guard fullText.contains("nutrition") || fullText.contains("calories") else {
             print("❌ Doesn't appear to be a nutrition label")
             return nil
+        }
+        
+        // Try to find calories in the full text first (handles multi-line cases)
+        if let calories = extractCaloriesFromFullText(lines) {
+            data.calories = calories
+            foundAnyData = true
+            print("✅ Found calories from full text: \(calories)")
         }
         
         // Parse each line
@@ -58,12 +67,8 @@ struct NutritionLabelParser {
                 foundAnyData = true
             }
             
-            // Calories - most important field
-            if let calories = extractCalories(from: line) {
-                data.calories = calories
-                foundAnyData = true
-                print("✅ Found calories: \(calories)")
-            }
+            // Skip calorie extraction from individual lines since we already did it from full text
+            // (This prevents false positives from line-by-line parsing)
             
             // Total Fat
             if let fat = extractNutrient(from: line, patterns: ["total fat", "fat"]) {
@@ -177,6 +182,134 @@ struct NutritionLabelParser {
         if let match = text.range(of: pattern, options: .regularExpression) {
             return String(text[match])
         }
+        return nil
+    }
+    
+    private static func extractCaloriesFromFullText(_ lines: [String]) -> Double? {
+        // Look for "Calories" line and check surrounding lines for the number
+        // Prioritize lines that appear to be from the actual nutrition facts table
+        for (index, line) in lines.enumerated() {
+            let cleaned = line.lowercased().trimmingCharacters(in: .whitespaces)
+            
+            // Found a line containing "calories"
+            if cleaned.contains("calories") || cleaned.contains("calorie") {
+                print("📍 Found calories keyword at line \(index): \"\(line)\"")
+                
+                // Skip marketing/promotional text (these patterns indicate it's not the nutrition facts)
+                if cleaned.contains("fewer calories") || 
+                   cleaned.contains("reduced") ||
+                   cleaned.contains("than") ||
+                   cleaned.contains("%") ||
+                   cleaned.contains("percent") {
+                    print("⚠️ Skipping marketing text at line \(index)")
+                    continue
+                }
+                
+                // Look for "Amount per serving" nearby (indicates this is the nutrition facts section)
+                let isNearAmountPerServing = (index > 0 && lines[index - 1].lowercased().contains("amount per serving")) ||
+                                             (index > 1 && lines[index - 2].lowercased().contains("amount per serving"))
+                
+                // If this is just "Calories" on its own line (FDA format), check next line
+                if cleaned == "calories" || cleaned == "calorie" {
+                    if index + 1 < lines.count {
+                        let nextLine = lines[index + 1]
+                        print("📍 Checking next line for standalone 'Calories': \"\(nextLine)\"")
+                        
+                        // Check if next line is just a number
+                        if let numberMatch = nextLine.range(of: #"^\s*\d+\s*$"#, options: .regularExpression) {
+                            let numberStr = String(nextLine[numberMatch]).trimmingCharacters(in: .whitespaces)
+                            if let value = Double(numberStr), value > 0 && value < 1000 {
+                                print("✅ Found calories on next line (FDA format): \(value)")
+                                return value
+                            }
+                        }
+                        
+                        // Special case: If next line is "Total Fat" or "% Daily Value",
+                        // the calorie number was likely missed by OCR
+                        // Check if we can find it in nearby marketing text
+                        if nextLine.lowercased().contains("total fat") || 
+                           nextLine.lowercased().contains("daily value") ||
+                           nextLine.lowercased().contains("% daily") {
+                            print("⚠️ Calorie number appears to be missing between 'Calories' and '\(nextLine)'")
+                            print("⚠️ Will try to find it in surrounding text...")
+                            
+                            // Look backwards in earlier lines for calorie references
+                            for backIndex in stride(from: index - 1, through: max(0, index - 10), by: -1) {
+                                let backLine = lines[backIndex].lowercased()
+                                if backLine.contains("calorie") && backLine.contains("per") {
+                                    print("📍 Found potential calorie reference: '\(lines[backIndex])'")
+                                    // Extract number from patterns like "5 calories per serving"
+                                    // Extract all numbers from the line
+                                    let allMatches = lines[backIndex].matches(of: /\d+/)
+                                    let numbers = allMatches.map { Int($0.output) ?? 0 }
+                                    if let firstValid = numbers.first(where: { $0 > 0 && $0 < 1000 }) {
+                                        print("✅ Found calories from reference text: \(firstValid)")
+                                        return Double(firstValid)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    continue
+                }
+                
+                // Strategy 1: Number on same line after "calories" (e.g., "Calories 230")
+                // But only if it looks like nutrition facts format
+                if isNearAmountPerServing || cleaned.starts(with: "calories") {
+                    if let numberMatch = line.range(of: #"calories\s*(\d+)"#, options: [.regularExpression, .caseInsensitive]) {
+                        let matchText = String(line[numberMatch])
+                        if let numMatch = matchText.range(of: #"\d+"#, options: .regularExpression) {
+                            let numberStr = String(matchText[numMatch])
+                            if let value = Double(numberStr), value > 0 && value < 1000 {
+                                print("✅ Found calories on same line: \(value)")
+                                return value
+                            }
+                        }
+                    }
+                }
+                
+                // Strategy 2: Number on next line (common in FDA labels)
+                if index + 1 < lines.count {
+                    let nextLine = lines[index + 1]
+                    print("📍 Checking next line: \"\(nextLine)\"")
+                    // Only match if next line is JUST a number
+                    if let numberMatch = nextLine.range(of: #"^\s*\d+\s*$"#, options: .regularExpression) {
+                        let numberStr = String(nextLine[numberMatch]).trimmingCharacters(in: .whitespaces)
+                        if let value = Double(numberStr), value > 0 && value < 1000 {
+                            print("✅ Found calories on next line: \(value)")
+                            return value
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Fallback: Look for "X calories per serving" pattern in marketing text
+        // This catches cases like "5 CALORIES PER TWO PIECE SERVING"
+        print("⚠️ Standard calorie detection failed, trying fallback patterns...")
+        for (index, line) in lines.enumerated() {
+            let cleaned = line.lowercased().trimmingCharacters(in: .whitespaces)
+            
+            // Pattern: "5 calories per serving" or "reduced from 8 to 5 calories"
+            if cleaned.contains("calories per") || (cleaned.contains("to") && cleaned.contains("calories")) {
+                print("📍 Found calorie reference at line \(index): \"\(line)\"")
+                
+                // Extract all numbers from the line
+                let numbers = line.matches(of: /\d+/).map { Int($0.output) ?? 0 }
+                print("📍 Numbers found in line: \(numbers)")
+                
+                // For "reduced from X to Y" pattern, take the last (newer) value
+                // For "Y calories per serving", take the first reasonable value
+                for number in numbers.reversed() {
+                    if number > 0 && number < 1000 {
+                        print("✅ Found calories from fallback pattern: \(number)")
+                        return Double(number)
+                    }
+                }
+            }
+        }
+        
+        print("❌ Could not find calories value")
         return nil
     }
     

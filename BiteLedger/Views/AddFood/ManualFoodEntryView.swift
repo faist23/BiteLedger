@@ -223,10 +223,16 @@ struct ManualFoodEntryView: View {
     private func addManualFood() {
         guard let caloriesVal = Double(calories) else { return }
         
-        // Get optional nutrition values
+        // Get optional nutrition values (entered per serving)
         let proteinVal = Double(protein) ?? 0
         let carbsVal = Double(totalCarbs) ?? 0
         let fatVal = Double(totalFat) ?? 0
+        
+        // Get the actual grams per serving if provided, otherwise estimate as 1g
+        let actualGramsPerServing = Double(servingWeight) ?? 1.0
+        
+        // Calculate the divisor to convert from per-serving to per-100g
+        let per100gDivisor = actualGramsPerServing / 100.0
         
         // Helper to convert mg to g for storage
         let mgToG: (String) -> Double? = { str in
@@ -239,35 +245,36 @@ struct ManualFoodEntryView: View {
             return val / 1_000_000.0
         }
         
+        // Convert all per-serving values to per-100g for internal storage
         let foodItem = FoodItem(
             name: foodName,
             brand: brand.isEmpty ? nil : brand,
-            caloriesPer100g: caloriesVal,
-            proteinPer100g: proteinVal,
-            carbsPer100g: carbsVal,
-            fatPer100g: fatVal,
-            fiberPer100g: fiber.isEmpty ? nil : Double(fiber),
-            sugarPer100g: sugar.isEmpty ? nil : Double(sugar),
-            sodiumPer100g: mgToG(sodium),
-            saturatedFatPer100g: saturatedFat.isEmpty ? nil : Double(saturatedFat),
-            transFatPer100g: transFat.isEmpty ? nil : Double(transFat),
+            caloriesPer100g: caloriesVal / per100gDivisor,
+            proteinPer100g: proteinVal / per100gDivisor,
+            carbsPer100g: carbsVal / per100gDivisor,
+            fatPer100g: fatVal / per100gDivisor,
+            fiberPer100g: fiber.isEmpty ? nil : (Double(fiber)! / per100gDivisor),
+            sugarPer100g: sugar.isEmpty ? nil : (Double(sugar)! / per100gDivisor),
+            sodiumPer100g: mgToG(sodium).map { $0 / per100gDivisor },
+            saturatedFatPer100g: saturatedFat.isEmpty ? nil : (Double(saturatedFat)! / per100gDivisor),
+            transFatPer100g: transFat.isEmpty ? nil : (Double(transFat)! / per100gDivisor),
             monounsaturatedFatPer100g: nil,
             polyunsaturatedFatPer100g: nil,
-            cholesterolPer100g: mgToG(cholesterol),
-            vitaminAPer100g: ugToG(vitaminA),
-            vitaminCPer100g: mgToG(vitaminC),
-            vitaminDPer100g: ugToG(vitaminD),
-            calciumPer100g: mgToG(calcium),
-            ironPer100g: mgToG(iron),
-            potassiumPer100g: mgToG(potassium),
+            cholesterolPer100g: mgToG(cholesterol).map { $0 / per100gDivisor },
+            vitaminAPer100g: ugToG(vitaminA).map { $0 / per100gDivisor },
+            vitaminCPer100g: mgToG(vitaminC).map { $0 / per100gDivisor },
+            vitaminDPer100g: ugToG(vitaminD).map { $0 / per100gDivisor },
+            calciumPer100g: mgToG(calcium).map { $0 / per100gDivisor },
+            ironPer100g: mgToG(iron).map { $0 / per100gDivisor },
+            potassiumPer100g: mgToG(potassium).map { $0 / per100gDivisor },
             servingDescription: servingDescription,
-            gramsPerServing: 100,
-            servingSizeIsEstimated: false,
+            gramsPerServing: actualGramsPerServing,
+            servingSizeIsEstimated: servingWeight.isEmpty,
             source: "Manual"
         )
         
         let amount = Double(amountToAdd) ?? 1.0
-        let totalGrams = amount * 100
+        let totalGrams = amount * actualGramsPerServing
         
         let addedItem = AddedFoodItem(
             foodItem: foodItem,
