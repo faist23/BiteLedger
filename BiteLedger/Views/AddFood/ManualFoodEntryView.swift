@@ -175,6 +175,11 @@ struct ManualFoodEntryView: View {
             servingDescription = servingSize
         }
         
+        // Fill in serving weight if detected from serving size
+        if let grams = data.servingSizeGrams {
+            servingWeight = String(format: "%.0f", grams)
+        }
+        
         // Fill in nutrition values
         if let cal = data.calories {
             calories = String(format: "%.0f", cal)

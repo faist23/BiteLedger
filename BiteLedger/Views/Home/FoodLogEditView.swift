@@ -294,7 +294,7 @@ struct FoodLogEditView: View {
                 }
             }
             .sheet(isPresented: $showingNutritionEditor) {
-                NutritionEditorView(foodItem: foodItem)
+                NutritionEditorView(foodItem: foodItem, loggedServings: log.servingMultiplier, loggedGrams: log.totalGrams, servingDisplayText: log.servingDisplayText)
             }
         }
     }
@@ -356,13 +356,45 @@ struct NutritionEditorView: View {
     @State private var iron: String
     @State private var potassium: String
     
-    init(foodItem: FoodItem) {
+    init(foodItem: FoodItem, loggedServings: Double? = nil, loggedGrams: Double? = nil, servingDisplayText: String? = nil) {
         self.foodItem = foodItem
         
-        _servingDescription = State(initialValue: foodItem.servingDescription)
-        _gramsPerServing = State(initialValue: String(format: "%.0f", foodItem.gramsPerServing))
+        // If we have logged amount info, show that instead of the base serving
+        let actualServings = loggedServings ?? 1.0
+        let actualGrams = loggedGrams ?? foodItem.gramsPerServing
         
-        let servingMultiplier = foodItem.gramsPerServing / 100.0
+        // Use the properly formatted serving display text from the log if available
+        let cleanDescription: String
+        if let displayText = servingDisplayText {
+            // Use the log's formatted serving display (e.g., "4 oz")
+            cleanDescription = displayText
+        } else if let loggedServings = loggedServings, loggedServings != 1.0 {
+            // Fallback: show servings if no display text available
+            cleanDescription = String(format: "%.2f servings (%dg)", loggedServings, Int(actualGrams))
+                .replacingOccurrences(of: ".00", with: "")
+        } else {
+            // Just use the base serving description
+            cleanDescription = foodItem.servingDescription
+        }
+        
+        _servingDescription = State(initialValue: cleanDescription)
+        _gramsPerServing = State(initialValue: String(format: "%.0f", actualGrams))
+        
+        // Detect if this is old broken data from the bug where manual entries
+        // stored per-serving values as per-100g with gramsPerServing hardcoded to 100
+        // Heuristic: Manual foods with gramsPerServing=100 but serving description suggesting
+        // it's not actually 100g (like "1 serving", "1 container", etc.) are likely broken
+        let descLower = foodItem.servingDescription.lowercased()
+        let looksLike100g = descLower.contains("100") || descLower.contains("100g")
+        let isBrokenData = foodItem.source == "Manual" && 
+                          foodItem.gramsPerServing == 100 && 
+                          !looksLike100g &&
+                          !foodItem.servingSizeIsEstimated // If estimated, it's new and correct
+        
+        // Calculate multiplier based on actual logged amount
+        // If broken, don't convert (values are already per-serving)
+        // If correct, convert from per-100g to the actual logged amount
+        let servingMultiplier = isBrokenData ? actualServings : (actualGrams / 100.0)
         
         _calories = State(initialValue: String(format: "%.0f", foodItem.caloriesPer100g * servingMultiplier))
         _totalFat = State(initialValue: String(format: "%.1f", foodItem.fatPer100g * servingMultiplier))

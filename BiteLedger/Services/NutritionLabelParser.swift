@@ -3,6 +3,7 @@ import Foundation
 /// Parsed nutrition data from a label scan
 struct NutritionData {
     var servingSize: String?
+    var servingSizeGrams: Double? // Extracted grams/mL from serving size
     var servingsPerContainer: String?
     var calories: Double?
     var totalFat: Double?
@@ -52,12 +53,23 @@ struct NutritionLabelParser {
         }
         
         // Parse each line
-        for line in lines {
+        for (index, line) in lines.enumerated() {
             let cleaned = line.lowercased().trimmingCharacters(in: .whitespaces)
             
-            // Serving size
+            // Serving size - may span multiple lines
             if cleaned.contains("serving size") {
-                data.servingSize = extractServingSize(from: line)
+                // Combine current line with next 2 lines to catch split text
+                var combinedText = line
+                if index + 1 < lines.count {
+                    combinedText += " " + lines[index + 1]
+                }
+                if index + 2 < lines.count {
+                    combinedText += " " + lines[index + 2]
+                }
+                
+                let (description, grams) = extractServingSizeWithWeight(from: combinedText)
+                data.servingSize = description
+                data.servingSizeGrams = grams
                 foundAnyData = true
             }
             
@@ -164,16 +176,66 @@ struct NutritionLabelParser {
     
     // MARK: - Helper Methods
     
-    private static func extractServingSize(from text: String) -> String? {
-        // Look for patterns like "Serving size 2/3 cup (55g)" or "1 cup (240ml)"
-        let pattern = #"serving size\s*(.+?)(?:\n|$)"#
-        if let match = text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
-            let extracted = String(text[match])
-                .replacingOccurrences(of: "serving size", with: "", options: .caseInsensitive)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return extracted.isEmpty ? nil : extracted
+    private static func extractServingSizeWithWeight(from text: String) -> (description: String?, grams: Double?) {
+        // Look for patterns like "Serving size 2/3 cup (55g)" or "8 fl oz. (240ml)"
+        let pattern = #"serving size\s*(.+?)(?=\n\n|\z)"#  // Capture until double newline or end
+        guard let match = text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) else {
+            return (nil, nil)
         }
-        return nil
+        
+        var extracted = String(text[match])
+            .replacingOccurrences(of: "serving size", with: "", options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if extracted.isEmpty {
+            return (nil, nil)
+        }
+        
+        // Try to extract a better description than just "1 serving"
+        // Look for actual measurements: oz, fl oz, cup, tbsp, mL, etc.
+        let measurementPatterns = [
+            #"(\d+\.?\d*\s*fl\.?\s*oz\.?(?:\s*\(\d+\.?\d*\s*m[lL]\))?)"#,  // 8 fl oz (240mL)
+            #"(\d+\.?\d*\s*oz\.?(?:\s*\(\d+\.?\d*\s*g\))?)"#,              // 8 oz (227g)
+            #"(\d+\.?\d*\s*cup[s]?(?:\s*\(\d+\.?\d*\s*[mg]L?\))?)"#,       // 1 cup (240mL)
+            #"(\d+\.?\d*\s*tbsp\.?(?:\s*\(\d+\.?\d*\s*[mg]L?\))?)"#,       // 2 tbsp (30mL)
+            #"(\d+\.?\d*\s*tsp\.?(?:\s*\(\d+\.?\d*\s*[mg]L?\))?)"#,        // 1 tsp (5mL)
+            #"(\d+\.?\d*\s*m[lL](?:\s*\(\d+\.?\d*\s*fl\.?\s*oz\.?\))?)"#,  // 240mL (8 fl oz)
+            #"(\d+\.?\d*\s*g(?:\s*\(\d+\.?\d*\s*oz\.?\))?)"#                // 240g (8 oz)
+        ]
+        
+        for pattern in measurementPatterns {
+            if let measurementMatch = extracted.range(of: pattern, options: .regularExpression) {
+                let measurement = String(extracted[measurementMatch])
+                extracted = measurement
+                break
+            }
+        }
+        
+        // Try to extract grams or mL from parentheses or standalone units
+        var gramsValue: Double? = nil
+        
+        let weightPatterns = [
+            #"\((\d+\.?\d*)\s*m[lL]\)"#,  // (240mL) or (240ml)
+            #"\((\d+\.?\d*)\s*g\)"#,      // (240g)
+            #"(\d+\.?\d*)\s*m[lL]\b"#,    // 240mL (not in parentheses)
+            #"(\d+\.?\d*)\s*g\b"#          // 240g (not in parentheses)
+        ]
+        
+        for pattern in weightPatterns {
+            if let weightMatch = extracted.range(of: pattern, options: .regularExpression) {
+                let matchText = String(extracted[weightMatch])
+                // Extract just the number
+                if let numberMatch = matchText.range(of: #"\d+\.?\d*"#, options: .regularExpression) {
+                    let numberStr = String(matchText[numberMatch])
+                    gramsValue = Double(numberStr)
+                    break
+                }
+            }
+        }
+        
+        print("📏 Extracted serving size: '\(extracted)' with \(gramsValue ?? 0)g")
+        
+        return (extracted, gramsValue)
     }
     
     private static func extractNumber(from text: String) -> String? {

@@ -88,20 +88,19 @@ private extension MealDiarySection {
 
     var foodList: some View {
         VStack(spacing: 0) {
-
             ForEach(logs) { log in
-                FoodRow(
+                SwipeableFoodRow(
                     log: log,
                     onEdit: { onEditLog(log) },
                     onDelete: { onDeleteLog(log) }
                 )
-
+                
                 if log.id != logs.last?.id {
                     Divider()
                         .background(Color("DividerSubtle"))
                 }
             }
-
+            
             Button(action: onAddFood) {
                 HStack {
                     Image(systemName: "plus")
@@ -162,12 +161,73 @@ struct FoodRow: View {
         .onTapGesture {
             onEdit()
         }
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            Button(role: .destructive) {
-                onDelete()
-            } label: {
-                Label("Delete", systemImage: "trash")
+    }
+}
+struct SwipeableFoodRow: View {
+    let log: FoodLog
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    
+    @State private var offset: CGFloat = 0
+    @State private var dragStartX: CGFloat = 0
+    
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            // Delete button background
+            HStack {
+                Spacer()
+                Button(action: {
+                    withAnimation {
+                        offset = 0
+                    }
+                    onDelete()
+                }) {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.white)
+                        .frame(width: 70)
+                }
+                .frame(maxHeight: .infinity)
+                .background(Color.red)
             }
+            
+            // Main content
+            FoodRow(log: log, onEdit: onEdit, onDelete: onDelete)
+                .background(Color("SurfaceCard"))
+                .offset(x: offset)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 20)
+                        .onChanged { value in
+                            // Only respond to mostly horizontal swipes
+                            let horizontalAmount = abs(value.translation.width)
+                            let verticalAmount = abs(value.translation.height)
+                            
+                            if horizontalAmount > verticalAmount {
+                                if value.translation.width < 0 {
+                                    offset = max(value.translation.width, -70)
+                                } else if offset < 0 {
+                                    offset = min(0, offset + value.translation.width)
+                                }
+                            }
+                        }
+                        .onEnded { value in
+                            let horizontalAmount = abs(value.translation.width)
+                            let verticalAmount = abs(value.translation.height)
+                            
+                            // Only snap if it was a horizontal swipe
+                            if horizontalAmount > verticalAmount {
+                                if offset < -35 {
+                                    withAnimation {
+                                        offset = -70
+                                    }
+                                } else {
+                                    withAnimation {
+                                        offset = 0
+                                    }
+                                }
+                            }
+                        }
+                )
         }
     }
 }
+
