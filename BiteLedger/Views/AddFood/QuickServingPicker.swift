@@ -218,7 +218,8 @@ struct QuickServingPicker: View {
         let addedItem = AddedFoodItem(
             foodItem: foodItem,
             servings: servingAmount,
-            totalGrams: servingSizeGrams
+            totalGrams: servingSizeGrams,
+            selectedPortionId: nil  // Quick picker doesn't support portions yet
         )
         
         onAdd(addedItem)
@@ -298,7 +299,9 @@ struct MacroCard: View {
             sodiumServing: nil
         ),
         servingSize: "21g",
-        quantity: "340g"
+        quantity: "340g",
+        portions: nil,
+            countriesTags: nil
     )
     
     QuickServingPicker(product: sampleProduct, mealType: .breakfast) { _ in }

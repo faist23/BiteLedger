@@ -95,13 +95,13 @@ class OpenFoodFactsService {
     
     /// Search for products by name
     func searchProducts(query: String, page: Int = 1) async throws -> [ProductInfo] {
-        // Use the CGI search endpoint for better results
+        // Use the world endpoint for faster response, filter client-side
         let urlString = "https://world.openfoodfacts.org/cgi/search.pl"
-        
+
         guard var components = URLComponents(string: urlString) else {
             throw OpenFoodFactsError.invalidURL
         }
-        
+
         components.queryItems = [
             URLQueryItem(name: "search_terms", value: query),
             URLQueryItem(name: "search_simple", value: "1"),
@@ -109,7 +109,7 @@ class OpenFoodFactsService {
             URLQueryItem(name: "json", value: "1"),
             URLQueryItem(name: "page", value: "\(page)"),
             URLQueryItem(name: "page_size", value: "25"),
-            URLQueryItem(name: "fields", value: "code,product_name,brands,image_url,nutriments,serving_size,quantity")
+            URLQueryItem(name: "fields", value: "code,product_name,brands,image_url,nutriments,serving_size,quantity,countries_tags")
         ]
         
         guard let url = components.url else {
@@ -193,7 +193,9 @@ struct ProductInfo: Codable, Identifiable {
     let nutriments: Nutriments?
     let servingSize: String?
     let quantity: String?
-    
+    let portions: [ServingPortion]?  // USDA portions (e.g., "1 medium banana")
+    let countriesTags: [String]?  // Countries where product is sold
+
     var id: String { code }
     
     var displayName: String {
@@ -215,6 +217,23 @@ struct ProductInfo: Codable, Identifiable {
         case nutriments
         case servingSize = "serving_size"
         case quantity
+        case portions
+        case countriesTags = "countries_tags"
+    }
+}
+
+/// Represents a serving portion (primarily from USDA)
+struct ServingPortion: Codable, Identifiable, Hashable {
+    let id: Int
+    let amount: Double
+    let modifier: String
+    let gramWeight: Double
+    
+    var displayName: String {
+        if amount == 1.0 {
+            return modifier
+        }
+        return "\(amount) \(modifier)"
     }
 }
 

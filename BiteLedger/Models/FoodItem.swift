@@ -48,6 +48,9 @@ final class FoodItem {
     // Volume conversions (if available)
     var volumeConversionsData: Data?  // Encoded [VolumeConversion]
     
+    // USDA portion sizes (if available)
+    var portionsData: Data?  // Encoded [StoredPortion]
+    
     // Metadata
     var dateAdded: Date
     var source: String  // "OpenFoodFacts", "USDA", "Manual"
@@ -158,4 +161,32 @@ struct VolumeConversion: Codable {
     let unit: String  // "cup", "tbsp", etc
     let gramsPerUnit: Double
     let source: String  // "productLabel", "genericEstimate", "userDefined"
+}
+
+// Helper for storing USDA portions
+struct StoredPortion: Codable, Identifiable, Hashable {
+    let id: Int
+    let amount: Double
+    let modifier: String
+    let gramWeight: Double
+    
+    var displayName: String {
+        if amount == 1.0 {
+            return modifier
+        }
+        return "\(amount) \(modifier)"
+    }
+}
+
+// Extension to work with portions
+extension FoodItem {
+    var portions: [StoredPortion]? {
+        get {
+            guard let data = portionsData else { return nil }
+            return try? JSONDecoder().decode([StoredPortion].self, from: data)
+        }
+        set {
+            portionsData = try? JSONEncoder().encode(newValue)
+        }
+    }
 }

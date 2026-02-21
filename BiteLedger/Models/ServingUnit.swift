@@ -177,8 +177,12 @@ struct ServingSizeParser {
             unit = .ounce
         } else if mainPart.contains("lb") || mainPart.contains("pound") {
             unit = .pound
-        } else if mainPart.contains("serving") || mainPart.contains("portion") {
-            // If it says "serving" or "portion", use the .serving unit
+        } else if mainPart.contains("serving") || mainPart.contains("portion") || 
+                  mainPart.contains("medium") || mainPart.contains("large") || 
+                  mainPart.contains("small") || mainPart.contains("banana") ||
+                  mainPart.contains("apple") || mainPart.contains("pear") ||
+                  mainPart.contains("slice") || mainPart.contains("piece") {
+            // If it says "serving", "portion", or USDA portion descriptors, use the .serving unit
             unit = .serving
         } else if mainPart.trimmingCharacters(in: .whitespaces).hasSuffix("g") {
             // Only treat as grams if the main part ends with 'g' (like "100g")

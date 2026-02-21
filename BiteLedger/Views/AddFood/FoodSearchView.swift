@@ -21,7 +21,7 @@ struct FoodSearchView: View {
     @State private var selectedMeal: [FoodLog]?
     @State private var errorMessage: String?
     
-    private let foodService = OpenFoodFactsService.shared
+    private let foodService = UnifiedFoodSearchService.shared
     
     enum SearchTab: String, CaseIterable {
         case search = "Search"
@@ -225,7 +225,9 @@ struct FoodSearchView: View {
                                 sodiumServing: nil
                             ),
                             servingSize: servingSizeString,
-                            quantity: "\(Int(foodItem.gramsPerServing))g"
+                            quantity: "\(Int(foodItem.gramsPerServing))g",
+                            portions: nil,
+            countriesTags: nil
                         )
                         selectedProductContext = (productInfo, foodItem, lastServingAmount)
                     }
@@ -236,7 +238,7 @@ struct FoodSearchView: View {
                         ForEach(searchResults, id: \.code) { product in
                             ProductQuickRow(product: product)
                                 .onTapGesture {
-                                    selectedProduct = product
+                                    handleProductSelection(product)
                                 }
                         }
                     }
@@ -303,37 +305,38 @@ struct FoodSearchView: View {
                         sodiumServing: nil
                     ),
                     servingSize: servingSizeString,
-                    quantity: "\(Int(foodItem.gramsPerServing))g"
+                    quantity: "\(Int(foodItem.gramsPerServing))g",
+                    portions: nil,
+            countriesTags: nil
                 )
                 selectedProductContext = (productInfo, foodItem, lastServingAmount)
             }
         )
     }
     
-    private var mealsTabContent: some View {
-        // Group logs by meal instance (same date + meal type)
-        let groupedMeals: [(date: Date, mealType: MealType, logs: [FoodLog])] = {
-            let grouped = Dictionary(grouping: allLogs) { log -> String in
-                let calendar = Calendar.current
-                let dateComponents = calendar.dateComponents([.year, .month, .day], from: log.timestamp)
-                let dateKey = calendar.date(from: dateComponents) ?? log.timestamp
-                return "\(dateKey)-\(log.meal.rawValue)"
-            }
-            
-            return grouped.map { (_, logs) -> (date: Date, mealType: MealType, logs: [FoodLog]) in
-                let firstLog = logs.first!
-                return (firstLog.timestamp, firstLog.meal, logs.sorted { $0.timestamp < $1.timestamp })
-            }
-            .sorted { $0.date > $1.date }
-            .filter { meal in
-                if searchText.isEmpty { return true }
-                return meal.logs.contains { log in
-                    log.foodItem?.name.localizedCaseInsensitiveContains(searchText) ?? false
-                }
-            }
-        }()
+    private var groupedMeals: [(date: Date, mealType: MealType, logs: [FoodLog])] {
+        let grouped = Dictionary(grouping: allLogs) { log -> String in
+            let calendar = Calendar.current
+            let dateComponents = calendar.dateComponents([.year, .month, .day], from: log.timestamp)
+            let dateKey = calendar.date(from: dateComponents) ?? log.timestamp
+            return "\(dateKey)-\(log.meal.rawValue)"
+        }
         
-        return Group {
+        return grouped.map { (_, logs) -> (date: Date, mealType: MealType, logs: [FoodLog]) in
+            let firstLog = logs.first!
+            return (firstLog.timestamp, firstLog.meal, logs.sorted { $0.timestamp < $1.timestamp })
+        }
+        .sorted { $0.date > $1.date }
+        .filter { meal in
+            if searchText.isEmpty { return true }
+            return meal.logs.contains { log in
+                log.foodItem?.name.localizedCaseInsensitiveContains(searchText) ?? false
+            }
+        }
+    }
+    
+    private var mealsTabContent: some View {
+        Group {
             if groupedMeals.isEmpty {
                 ContentUnavailableView {
                     Label(searchText.isEmpty ? "No Meals Yet" : "No Matching Meals", systemImage: "list.bullet.clipboard")
@@ -422,7 +425,8 @@ struct FoodSearchView: View {
                             let addedItem = AddedFoodItem(
                                 foodItem: foodItem,
                                 servings: log.servingMultiplier,
-                                totalGrams: log.totalGrams
+                                totalGrams: log.totalGrams,
+                                selectedPortionId: log.selectedPortionId
                             )
                             onFoodAdded(addedItem)
                         }
@@ -435,19 +439,23 @@ struct FoodSearchView: View {
     
     private func performSearch() {
         guard !searchText.isEmpty else { return }
-        
+
         isSearching = true
         errorMessage = nil
-        
+
         Task {
+            // Search My Foods first
+            let myFoodsResults = searchMyFoods(query: searchText)
+            print("📱 Found \(myFoodsResults.count) My Foods results")
+
             do {
                 print("🔍 Searching for: \(searchText)")
-                let results = try await foodService.searchProducts(query: searchText)
-                print("📦 Got \(results.count) results")
-                
+                let results = try await foodService.searchAllDatabases(query: searchText)
+                print("📦 Got \(results.count) database results")
+
                 await MainActor.run {
                     // Filter out products without nutrition data
-                    searchResults = results.filter { 
+                    let filteredResults = results.filter {
                         if let nutriments = $0.nutriments {
                             let hasCalories = nutriments.calories > 0
                             if !hasCalories {
@@ -458,24 +466,94 @@ struct FoodSearchView: View {
                         print("⚠️ Filtered out \($0.displayName) - no nutriments")
                         return false
                     }
-                    
-                    print("✅ After filtering: \(searchResults.count) products")
-                    
+
+                    // Combine My Foods (first) + database results
+                    searchResults = myFoodsResults + filteredResults
+
+                    print("✅ Total results: \(searchResults.count) (\(myFoodsResults.count) from My Foods)")
+
                     if searchResults.isEmpty {
-                        errorMessage = results.isEmpty ? 
-                            "No results found for '\(searchText)'" :
-                            "No products with nutrition data found. Try manual entry."
+                        errorMessage = "No results found for '\(searchText)'"
                     }
                     isSearching = false
                 }
             } catch {
                 print("❌ Search error: \(error)")
                 await MainActor.run {
-                    errorMessage = "Search failed: \(error.localizedDescription)"
-                    searchResults = []
+                    // Even if database search fails, show My Foods results
+                    searchResults = myFoodsResults
+
+                    if searchResults.isEmpty {
+                        errorMessage = "Search failed: \(error.localizedDescription)"
+                    }
                     isSearching = false
                 }
             }
+        }
+    }
+
+    private func searchMyFoods(query: String) -> [ProductInfo] {
+        // Get unique food items from logs
+        let uniqueFoods = Dictionary(grouping: allLogs.compactMap { $0.foodItem }) { $0.id }
+            .values
+            .compactMap { $0.first }
+
+        // Split search query into words
+        let searchWords = query.lowercased().split(separator: " ").map { String($0) }
+
+        // Filter foods that contain ALL search words
+        let matchingFoods = uniqueFoods.filter { foodItem in
+            let name = foodItem.name.lowercased()
+            let brand = foodItem.brand?.lowercased() ?? ""
+            let combinedText = "\(name) \(brand)"
+
+            return searchWords.allSatisfy { word in
+                combinedText.contains(word)
+            }
+        }
+
+        // Convert to ProductInfo
+        return matchingFoods.map { foodItem in
+            ProductInfo(
+                code: foodItem.barcode ?? "myfoods_\(foodItem.id.uuidString)",
+                productName: foodItem.name,
+                brands: foodItem.brand,
+                imageUrl: foodItem.imageURL,
+                nutriments: Nutriments(
+                    energyKcal100g: FlexibleDouble(foodItem.caloriesPer100g),
+                    energyKcalComputed: foodItem.caloriesPer100g,
+                    proteins100g: FlexibleDouble(foodItem.proteinPer100g),
+                    carbohydrates100g: FlexibleDouble(foodItem.carbsPer100g),
+                    sugars100g: foodItem.sugarPer100g.map { FlexibleDouble($0) },
+                    fat100g: FlexibleDouble(foodItem.fatPer100g),
+                    saturatedFat100g: foodItem.saturatedFatPer100g.map { FlexibleDouble($0) },
+                    transFat100g: foodItem.transFatPer100g.map { FlexibleDouble($0) },
+                    monounsaturatedFat100g: foodItem.monounsaturatedFatPer100g.map { FlexibleDouble($0) },
+                    polyunsaturatedFat100g: foodItem.polyunsaturatedFatPer100g.map { FlexibleDouble($0) },
+                    fiber100g: foodItem.fiberPer100g.map { FlexibleDouble($0) },
+                    sodium100g: foodItem.sodiumPer100g.map { FlexibleDouble($0) },
+                    salt100g: nil,
+                    cholesterol100g: foodItem.cholesterolPer100g.map { FlexibleDouble($0) },
+                    vitaminA100g: foodItem.vitaminAPer100g.map { FlexibleDouble($0) },
+                    vitaminC100g: foodItem.vitaminCPer100g.map { FlexibleDouble($0) },
+                    vitaminD100g: foodItem.vitaminDPer100g.map { FlexibleDouble($0) },
+                    calcium100g: foodItem.calciumPer100g.map { FlexibleDouble($0) },
+                    iron100g: foodItem.ironPer100g.map { FlexibleDouble($0) },
+                    potassium100g: foodItem.potassiumPer100g.map { FlexibleDouble($0) },
+                    energyKcalServing: nil,
+                    proteinsServing: nil,
+                    carbohydratesServing: nil,
+                    sugarsServing: nil,
+                    fatServing: nil,
+                    saturatedFatServing: nil,
+                    fiberServing: nil,
+                    sodiumServing: nil
+                ),
+                servingSize: "\(foodItem.gramsPerServing)g",
+                quantity: "\(Int(foodItem.gramsPerServing))g",
+                portions: nil,
+                countriesTags: nil
+            )
         }
     }
     
@@ -484,7 +562,8 @@ struct FoodSearchView: View {
         
         Task {
             do {
-                let product = try await foodService.fetchProduct(barcode: barcode)
+                // Barcode lookup only works with OpenFoodFacts
+                let product = try await OpenFoodFactsService.shared.fetchProduct(barcode: barcode)
                 await MainActor.run {
                     if let nutriments = product.nutriments, nutriments.calories > 0 {
                         selectedProduct = product
@@ -497,6 +576,30 @@ struct FoodSearchView: View {
                     errorMessage = "Product not found in database. Try manual entry."
                 }
             }
+        }
+    }
+    
+    private func handleProductSelection(_ product: ProductInfo) {
+        // Check if this is a USDA product
+        if product.code.hasPrefix("usda_") {
+            // Fetch full details to get portions
+            Task {
+                do {
+                    let detailedProduct = try await UnifiedFoodSearchService.shared.getProductDetails(code: product.code)
+                    await MainActor.run {
+                        selectedProduct = detailedProduct
+                    }
+                } catch {
+                    print("❌ Failed to fetch USDA details: \(error)")
+                    // Fall back to basic product if details fail
+                    await MainActor.run {
+                        selectedProduct = product
+                    }
+                }
+            }
+        } else {
+            // OpenFoodFacts product - use as is
+            selectedProduct = product
         }
     }
 }

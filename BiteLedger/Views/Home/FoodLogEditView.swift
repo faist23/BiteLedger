@@ -20,10 +20,12 @@ struct FoodLogEditView: View {
     @State private var fraction: Fraction
     @State private var selectedUnit: ServingUnit
     @State private var showingNutritionEditor = false
+    @State private var selectedPortion: StoredPortion?
     
     private let foodType: FoodType
     private let parsedServingUnit: String
     private let availableUnits: [ServingUnit]
+    private let hasPortions: Bool
     
     enum Fraction: Double, CaseIterable, Identifiable {
         case zero = 0.0
@@ -77,6 +79,19 @@ struct FoodLogEditView: View {
         
         self.availableUnits = units
         
+        // Check if food has portions
+        self.hasPortions = (foodItem.portions?.isEmpty == false)
+        
+        // Initialize selected portion from log's saved portion ID
+        if let portionId = log.selectedPortionId,
+           let portions = foodItem.portions,
+           let savedPortion = portions.first(where: { $0.id == portionId }) {
+            _selectedPortion = State(initialValue: savedPortion)
+        } else if let portions = foodItem.portions, let firstPortion = portions.first {
+            // Fallback to first portion if no saved selection
+            _selectedPortion = State(initialValue: firstPortion)
+        }
+        
         // Initialize from current serving multiplier
         let currentAmount = log.servingMultiplier
         let whole = Int(currentAmount)
@@ -102,6 +117,11 @@ struct FoodLogEditView: View {
     }
     
     private var totalGrams: Double {
+        // If a portion is selected, use its gram weight
+        if let portion = selectedPortion {
+            return amountValue * portion.gramWeight
+        }
+        
         if selectedUnit == .serving {
             // For serving unit, multiply by the food's gramsPerServing
             return amountValue * foodItem.gramsPerServing
@@ -236,6 +256,45 @@ struct FoodLogEditView: View {
                 
                 Spacer()
                 
+                // Portion size selector (if portions are available)
+                if hasPortions, let portions = foodItem.portions {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Size")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                        
+                        Menu {
+                            ForEach(portions) { portion in
+                                Button {
+                                    selectedPortion = portion
+                                } label: {
+                                    HStack {
+                                        Text(portion.modifier.capitalized)
+                                        Spacer()
+                                        if selectedPortion?.id == portion.id {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text(selectedPortion?.modifier.capitalized ?? "Select size")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .foregroundStyle(.secondary)
+                                    .font(.caption)
+                            }
+                            .padding()
+                            .background(Color(.systemGray6))
+                            .cornerRadius(10)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                }
+                
                 // Amount label
                 Text("Amount")
                     .font(.headline)
@@ -319,6 +378,14 @@ struct FoodLogEditView: View {
         // Update the log with new values
         log.servingMultiplier = amountValue
         log.totalGrams = totalGrams
+        log.selectedPortionId = selectedPortion?.id
+        
+        // Recalculate cached nutrition based on new portion/amount
+        let multiplier = totalGrams / 100.0
+        log.calories = foodItem.caloriesPer100g * multiplier
+        log.protein = foodItem.proteinPer100g * multiplier
+        log.carbs = foodItem.carbsPer100g * multiplier
+        log.fat = foodItem.fatPer100g * multiplier
         
         onSave(log)
         dismiss()

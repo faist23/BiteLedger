@@ -69,12 +69,17 @@ struct TodayView: View {
                     timestamp = Calendar.current.date(from: components) ?? selectedDate
                 }
 
+                // Insert and save FoodItem first to ensure portions are persisted
+                modelContext.insert(addedItem.foodItem)
+                try? modelContext.save()
+
                 let foodLog = FoodLog(
                     foodItem: addedItem.foodItem,
                     timestamp: timestamp,
                     meal: meal,
                     servingMultiplier: addedItem.servings,
-                    totalGrams: addedItem.totalGrams
+                    totalGrams: addedItem.totalGrams,
+                    selectedPortionId: addedItem.selectedPortionId
                 )
 
                 modelContext.insert(foodLog)

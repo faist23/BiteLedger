@@ -16,9 +16,11 @@ struct ImprovedServingPicker: View {
     @State private var fraction: Fraction
     @State private var selectedUnit: ServingUnit
     @State private var availableUnits: [ServingUnit] = []
+    @State private var selectedPortion: ServingPortion?
     
     private let foodType: FoodType
     private let productServingGrams: Double?
+    private let hasPortions: Bool
     
     enum Fraction: Double, CaseIterable, Identifiable {
         case zero = 0.0
@@ -52,8 +54,17 @@ struct ImprovedServingPicker: View {
         // Infer food type for density calculations
         self.foodType = FoodType.infer(from: product.displayName)
         
+        // Check if product has portions
+        self.hasPortions = (product.portions?.count ?? 0) > 0
+        
+        // Set initial portion if available
+        if let firstPortion = product.portions?.first {
+            _selectedPortion = State(initialValue: firstPortion)
+        }
+        
         print("🔍 Product: \(product.displayName)")
         print("🔍 Serving size string from API: '\(product.servingSize ?? "nil")'")
+        print("🔍 Has portions: \(self.hasPortions), count: \(product.portions?.count ?? 0)")
         print("🔍 Initial serving amount: \(initialServingAmount ?? 0)")
         
         // Parse product's natural serving size
@@ -95,6 +106,12 @@ struct ImprovedServingPicker: View {
     }
     
     private var totalGrams: Double {
+        // If we have a selected portion, use its gram weight
+        if let portion = selectedPortion {
+            return amountValue * portion.gramWeight
+        }
+        
+        // Otherwise use the standard unit conversion
         if selectedUnit == .serving, let servingGrams = productServingGrams {
             return amountValue * servingGrams
         }
@@ -179,6 +196,45 @@ struct ImprovedServingPicker: View {
                 }
                 
                 Spacer()
+                
+                // Portion size selector (if portions are available)
+                if hasPortions, let portions = product.portions {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Size")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                        
+                        Menu {
+                            ForEach(portions) { portion in
+                                Button {
+                                    selectedPortion = portion
+                                } label: {
+                                    HStack {
+                                        Text(portion.modifier.capitalized)
+                                        Spacer()
+                                        if selectedPortion?.id == portion.id {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text(selectedPortion?.modifier.capitalized ?? "Select size")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .foregroundStyle(.secondary)
+                                    .font(.caption)
+                            }
+                            .padding()
+                            .background(Color(.systemGray6))
+                            .cornerRadius(10)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                }
                 
                 // Amount label
                 Text("Amount")
@@ -277,6 +333,9 @@ struct ImprovedServingPicker: View {
                 gramsPerSingleUnit = selectedUnit.toGrams(amount: 1.0, density: density)
             }
             
+            // Determine source based on product code
+            let source = product.code.hasPrefix("usda_") ? "USDA" : "OpenFoodFacts"
+            
             foodItem = FoodItem(
                 name: product.displayName,
                 brand: product.brands,
@@ -284,17 +343,31 @@ struct ImprovedServingPicker: View {
                 nutritionPer100g: per100gNutrition,
                 servingSize: gramsPerSingleUnit,
                 servingSizeUnit: selectedUnit.abbreviation,
-                source: "OpenFoodFacts",
+                source: source,
                 imageURL: product.imageUrl
             )
+            
+            // Store portions if available (USDA foods)
+            if let productPortions = product.portions {
+                foodItem.portions = productPortions.map { portion in
+                    StoredPortion(
+                        id: portion.id,
+                        amount: portion.amount,
+                        modifier: portion.modifier,
+                        gramWeight: portion.gramWeight
+                    )
+                }
+
+            }
         }
         
         let addedItem = AddedFoodItem(
             foodItem: foodItem,
             servings: amountValue,
-            totalGrams: totalGrams
+            totalGrams: totalGrams,
+            selectedPortionId: selectedPortion?.id
         )
-        
+
         onAdd(addedItem)
     }
 }
@@ -356,7 +429,9 @@ struct MacroColumn: View {
             sodiumServing: nil
         ),
         servingSize: "2 tbsp (32g)",
-        quantity: nil
+        quantity: nil,
+        portions: nil,
+            countriesTags: nil
     )
     
     ImprovedServingPicker(product: sampleProduct, mealType: .breakfast) { _ in }

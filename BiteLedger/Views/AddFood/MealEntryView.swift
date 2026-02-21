@@ -136,12 +136,17 @@ struct MealEntryView: View {
     
     private func saveMeal() {
         for item in addedItems {
+            // Insert FoodItem first to ensure portions are persisted
+            modelContext.insert(item.foodItem)
+            try? modelContext.save()
+
             let foodLog = FoodLog(
                 foodItem: item.foodItem,
                 timestamp: Date(),
                 meal: selectedMeal,
                 servingMultiplier: item.servings,
-                totalGrams: item.totalGrams
+                totalGrams: item.totalGrams,
+                selectedPortionId: item.selectedPortionId
             )
             modelContext.insert(foodLog)
         }
@@ -225,6 +230,7 @@ struct AddedFoodItem: Identifiable {
     let foodItem: FoodItem
     let servings: Double
     let totalGrams: Double
+    let selectedPortionId: Int?
     
     var calories: Double {
         foodItem.caloriesPer100g * (totalGrams / 100.0)

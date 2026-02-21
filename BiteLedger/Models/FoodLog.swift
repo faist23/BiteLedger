@@ -19,6 +19,7 @@ final class FoodLog {
     // What the user logged
     var servingMultiplier: Double  // 1.5 (ate 1.5 servings)
     var totalGrams: Double  // calculated: 1.5 × 240g = 360g
+    var selectedPortionId: Int?  // ID of selected USDA portion (if applicable)
     
     // Cached nutrition (for performance - calculated at log time)
     var calories: Double
@@ -34,7 +35,8 @@ final class FoodLog {
         timestamp: Date = Date(),
         meal: MealType,
         servingMultiplier: Double,
-        totalGrams: Double
+        totalGrams: Double,
+        selectedPortionId: Int? = nil
     ) {
         self.id = UUID()
         self.foodItem = foodItem
@@ -42,6 +44,7 @@ final class FoodLog {
         self.meal = meal
         self.servingMultiplier = servingMultiplier
         self.totalGrams = totalGrams
+        self.selectedPortionId = selectedPortionId
         
         // Calculate and cache nutrition
         let multiplier = totalGrams / 100.0
@@ -51,10 +54,21 @@ final class FoodLog {
         self.fat = foodItem.fatPer100g * multiplier
     }
     
-    /// Format the serving display text (e.g., "2 tbsp" or "1.5 cups")
+    /// Format the serving display text (e.g., "2 tbsp" or "1.5 cups" or "1 medium")
     var servingDisplayText: String {
         guard let foodItem = foodItem else {
             return String(format: "%.0fg", totalGrams)
+        }
+        
+        // If a portion is selected, show it (e.g., "1 medium" or "2 large")
+        if let portionId = selectedPortionId,
+           let portions = foodItem.portions,
+           let portion = portions.first(where: { $0.id == portionId }) {
+            if servingMultiplier.truncatingRemainder(dividingBy: 1) == 0 {
+                return "\(Int(servingMultiplier)) \(portion.modifier)"
+            } else {
+                return String(format: "%.1f %@", servingMultiplier, portion.modifier)
+            }
         }
         
         // Extract just the unit from servingDescription (e.g., "15.97tbsp" -> "tbsp")
@@ -83,7 +97,8 @@ final class FoodLog {
         foodItem: FoodItem,
         servings: Double,
         mealType: MealType,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        selectedPortionId: Int? = nil
     ) {
         let totalGrams = foodItem.gramsPerServing * servings
         self.init(
@@ -91,7 +106,8 @@ final class FoodLog {
             timestamp: timestamp,
             meal: mealType,
             servingMultiplier: servings,
-            totalGrams: totalGrams
+            totalGrams: totalGrams,
+            selectedPortionId: selectedPortionId
         )
     }
 }

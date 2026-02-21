@@ -330,7 +330,9 @@ struct NutritionRow: View {
             sodiumServing: FlexibleDouble(0.005)
         ),
         servingSize: "50g",
-        quantity: "500g"
+        quantity: "500g",
+        portions: nil,
+            countriesTags: nil
     )
     
     ProductDetailView(product: sampleProduct)
