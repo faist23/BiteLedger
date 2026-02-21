@@ -113,7 +113,7 @@ private extension DetailedNutritionView {
                 // Donut
                 ZStack {
                     Circle()
-                        .stroke(Color("SurfaceTertiary"), lineWidth: 18)
+                        .stroke(Color("SurfacePrimary"), lineWidth: 18)
                     
                     Circle()
                         .trim(from: 0, to: fatPercent)

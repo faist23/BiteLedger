@@ -179,7 +179,7 @@ struct FoodLogEditView: View {
                     Spacer()
                 }
                 .padding()
-                .background(Color("SurfaceBackground"))
+                .background(Color("SurfacePrimary"))
                 
                 Spacer()
                 
@@ -380,6 +380,18 @@ struct FoodLogEditView: View {
         log.totalGrams = totalGrams
         log.selectedPortionId = selectedPortion?.id
         
+        // Set displayUnit based on what unit was selected
+        // This ensures the log shows the correct unit (e.g., "60g" not "60 cups")
+        if selectedUnit == .gram {
+            log.displayUnit = "g"
+        } else if selectedUnit == .ounce {
+            log.displayUnit = "oz"
+        } else {
+            // For other units (serving, cup, tbsp, etc.), clear displayUnit
+            // so it uses the default logic based on servingDescription
+            log.displayUnit = nil
+        }
+        
         // Recalculate cached nutrition based on new portion/amount
         let multiplier = totalGrams / 100.0
         log.calories = foodItem.caloriesPer100g * multiplier
@@ -490,7 +502,7 @@ struct NutritionEditorView: View {
                 }
                 .padding()
             }
-            .background(Color("SurfaceBackground"))
+            .background(Color("SurfacePrimary"))
             .navigationTitle("Edit Nutrition")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -9,7 +9,7 @@ import SwiftData
 struct TodayView: View {
 
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \FoodLog.timestamp, order: .reverse) private var logs: [FoodLog]
+    @State private var logs: [FoodLog] = []
 
     @State private var selectedMeal: MealType?
     @State private var editingLog: FoodLog?
@@ -17,11 +17,12 @@ struct TodayView: View {
     @State private var showingMealNutrition: MealType?
     @State private var selectedDate = Date()
     @State private var showingDatePicker = false
+    @State private var currentStreak = 0
 
     // MARK: - Computed
 
     private var todayLogs: [FoodLog] {
-        logs.filter { Calendar.current.isDate($0.timestamp, inSameDayAs: selectedDate) }
+        logs
     }
 
     private var totalCalories: Double {
@@ -38,24 +39,57 @@ struct TodayView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 28) {
-
-                    headerSection
-
-                    calorieSummaryCard
-
-                    macroRow
-
-                    mealSections
-
-                    Spacer(minLength: 60)
+            VStack(spacing: 0) {
+                // Sticky header
+                headerSection
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Color("SurfacePrimary"))
+                
+                // Streak display
+                if currentStreak > 0 {
+                    streakBanner
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 12)
+                        .background(Color("SurfacePrimary"))
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
+                
+                ScrollView {
+                    VStack(spacing: 28) {
+                        calorieSummaryCard
+
+                        macroRow
+
+                        mealSections
+
+                        Spacer(minLength: 60)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                }
             }
             .background(Color("SurfacePrimary"))
             .navigationBarHidden(true)
+            .gesture(
+                DragGesture(minimumDistance: 50)
+                    .onEnded { value in
+                        if value.translation.width > 0 {
+                            // Swipe right - go to previous day
+                            selectedDate = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+                            loadLogsForSelectedDate()
+                        } else if value.translation.width < 0 {
+                            // Swipe left - go to next day (unless today)
+                            if !Calendar.current.isDateInToday(selectedDate) {
+                                selectedDate = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
+                                loadLogsForSelectedDate()
+                            }
+                        }
+                    }
+            )
+            .onAppear {
+                loadLogsForSelectedDate()
+                loadStreak()
+            }
         }
         .sheet(item: $selectedMeal) { meal in
             FoodSearchView(mealType: meal) { addedItem in
@@ -84,6 +118,7 @@ struct TodayView: View {
 
                 modelContext.insert(foodLog)
                 try? modelContext.save()
+                loadLogsForSelectedDate()
             }
         }
         .sheet(item: $editingLog) { log in
@@ -92,6 +127,7 @@ struct TodayView: View {
                     log.servingMultiplier = updatedLog.servingMultiplier
                     log.totalGrams = updatedLog.totalGrams
                     try? modelContext.save()
+                    loadLogsForSelectedDate()
                 }
             }
         }
@@ -116,8 +152,58 @@ struct TodayView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         showingDatePicker = false
+                        loadLogsForSelectedDate()
                     }
                 }
+            }
+        }
+    }
+    
+    // MARK: - Data Loading
+    
+    private func loadLogsForSelectedDate() {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: selectedDate)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        let descriptor = FetchDescriptor<FoodLog>(
+            predicate: #Predicate { log in
+                log.timestamp >= startOfDay && log.timestamp < endOfDay
+            },
+            sortBy: [SortDescriptor(\FoodLog.timestamp, order: .reverse)]
+        )
+        
+        do {
+            logs = try modelContext.fetch(descriptor)
+        } catch {
+            print("Error fetching logs: \(error)")
+            logs = []
+        }
+    }
+    
+    private func loadStreak() {
+        Task {
+            let calendar = Calendar.current
+            let allDaysDescriptor = FetchDescriptor<FoodLog>(
+                sortBy: [SortDescriptor(\FoodLog.timestamp, order: .reverse)]
+            )
+            
+            do {
+                let allLogs = try modelContext.fetch(allDaysDescriptor)
+                let uniqueDays = Set(allLogs.map { calendar.startOfDay(for: $0.timestamp) })
+                
+                var streak = 0
+                var checkDate = calendar.startOfDay(for: Date())
+                
+                while uniqueDays.contains(checkDate) {
+                    streak += 1
+                    checkDate = calendar.date(byAdding: .day, value: -1, to: checkDate) ?? checkDate
+                }
+                
+                currentStreak = streak
+            } catch {
+                print("Error calculating streak: \(error)")
+                currentStreak = 0
             }
         }
     }
@@ -128,6 +214,7 @@ struct TodayView: View {
         HStack {
             Button {
                 selectedDate = Calendar.current.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+                loadLogsForSelectedDate()
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.title3)
@@ -154,6 +241,7 @@ struct TodayView: View {
 
             Button {
                 selectedDate = Calendar.current.date(byAdding: .day, value: 1, to: selectedDate) ?? selectedDate
+                loadLogsForSelectedDate()
             } label: {
                 Image(systemName: "chevron.right")
                     .font(.title3)
@@ -162,6 +250,38 @@ struct TodayView: View {
             .disabled(Calendar.current.isDateInToday(selectedDate))
             .opacity(Calendar.current.isDateInToday(selectedDate) ? 0.3 : 1)
         }
+    }
+    
+    // MARK: - Streak Banner
+    
+    private var streakBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "flame.fill")
+                .font(.title2)
+                .foregroundStyle(.orange)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(currentStreak) day streak")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color("TextPrimary"))
+                
+                Text("Keep it going!")
+                    .font(.caption)
+                    .foregroundStyle(Color("TextSecondary"))
+            }
+            
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.orange.opacity(0.1))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+        )
     }
 
     // MARK: - Calorie Card
@@ -243,7 +363,16 @@ struct TodayView: View {
         if calendar.isDateInTomorrow(selectedDate) { return "Tomorrow" }
 
         let formatter = DateFormatter()
-        formatter.dateFormat = "EEE, MMM d"
+        let currentYear = calendar.component(.year, from: Date())
+        let selectedYear = calendar.component(.year, from: selectedDate)
+        
+        // Show year if it's not the current year
+        if selectedYear != currentYear {
+            formatter.dateFormat = "EEE, MMM d, yyyy"
+        } else {
+            formatter.dateFormat = "EEE, MMM d"
+        }
+        
         return formatter.string(from: selectedDate)
     }
 }

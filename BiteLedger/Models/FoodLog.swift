@@ -20,6 +20,7 @@ final class FoodLog {
     var servingMultiplier: Double  // 1.5 (ate 1.5 servings)
     var totalGrams: Double  // calculated: 1.5 × 240g = 360g
     var selectedPortionId: Int?  // ID of selected USDA portion (if applicable)
+    var displayUnit: String?  // The unit to display (e.g., "g", "oz") - overrides automatic unit detection
     
     // Cached nutrition (for performance - calculated at log time)
     var calories: Double
@@ -58,6 +59,23 @@ final class FoodLog {
     var servingDisplayText: String {
         guard let foodItem = foodItem else {
             return String(format: "%.0fg", totalGrams)
+        }
+        
+        // If displayUnit is explicitly set (e.g., user switched to grams), use it
+        if let displayUnit = displayUnit {
+            if displayUnit == "g" {
+                // Show grams directly
+                return String(format: "%.0fg", totalGrams)
+            } else if displayUnit == "oz" {
+                // Show ounces
+                let ounces = totalGrams / 28.3495
+                if ounces.truncatingRemainder(dividingBy: 1) == 0 {
+                    return "\(Int(ounces)) oz"
+                } else {
+                    return String(format: "%.1f oz", ounces)
+                }
+            }
+            // Other units can be added here as needed
         }
         
         // If a portion is selected, show it (e.g., "1 medium" or "2 large")

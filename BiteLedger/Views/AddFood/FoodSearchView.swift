@@ -32,11 +32,12 @@ struct FoodSearchView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Search bar
+
+                // MARK: Search Bar
                 HStack {
                     Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    
+                        .foregroundStyle(Color("TextSecondary"))
+
                     TextField("Search", text: $searchText)
                         .textFieldStyle(.plain)
                         .onChange(of: searchText) { _, newValue in
@@ -44,7 +45,7 @@ struct FoodSearchView: View {
                                 performSearch()
                             }
                         }
-                    
+
                     if isSearching {
                         ProgressView()
                             .scaleEffect(0.8)
@@ -55,27 +56,36 @@ struct FoodSearchView: View {
                             errorMessage = nil
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color("TextSecondary"))
                         }
                     }
                 }
-                .padding(12)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                .padding()
-                
-                // Tabs
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color("SurfaceCard"))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color("DividerSubtle"), lineWidth: 1)
+                )
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+
+                // MARK: Segmented Tabs
                 Picker("Search Type", selection: $selectedTab) {
                     ForEach(SearchTab.allCases, id: \.self) { tab in
                         Text(tab.rawValue).tag(tab)
                     }
                 }
                 .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-                
-                // Quick actions
+                .tint(Color("BrandAccent"))
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+
+                // MARK: Quick Actions
                 if selectedTab == .search {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 14) {
                         Button {
                             showBarcodeScanner = true
                         } label: {
@@ -83,8 +93,8 @@ struct FoodSearchView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
-                        .tint(.blue)
-                        
+                        .tint(Color("BrandAccent"))
+
                         Button {
                             showManualEntry = true
                         } label: {
@@ -92,12 +102,13 @@ struct FoodSearchView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
-                        .tint(.green)
+                        .tint(Color("BrandAccent"))
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
                 }
-                
-                // Tab content
+
+                // MARK: Content
                 Group {
                     switch selectedTab {
                     case .search:
@@ -108,7 +119,11 @@ struct FoodSearchView: View {
                         mealsTabContent
                     }
                 }
+                .padding(.top, 16)
+
+                Spacer(minLength: 0)
             }
+            .background(Color("SurfacePrimary"))
             .navigationTitle("Add Food")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -116,6 +131,7 @@ struct FoodSearchView: View {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .foregroundStyle(Color("BrandAccent"))
                 }
             }
             .fullScreenCover(isPresented: $showBarcodeScanner) {
@@ -133,8 +149,21 @@ struct FoodSearchView: View {
                 }
             }
             .sheet(item: Binding(
-                get: { selectedProductContext.map { ProductContext(id: UUID(), product: $0.product, existingFood: $0.existingFood, initialServingAmount: $0.initialAmount) } },
-                set: { selectedProductContext = $0.map { ($0.product, $0.existingFood, $0.initialServingAmount) } }
+                get: {
+                    selectedProductContext.map {
+                        ProductContext(
+                            id: UUID(),
+                            product: $0.product,
+                            existingFood: $0.existingFood,
+                            initialServingAmount: $0.initialAmount
+                        )
+                    }
+                },
+                set: {
+                    selectedProductContext = $0.map {
+                        ($0.product, $0.existingFood, $0.initialServingAmount)
+                    }
+                }
             )) { context in
                 ImprovedServingPicker(
                     product: context.product,
@@ -624,58 +653,76 @@ struct ProductQuickRow: View {
     let product: ProductInfo
     
     var body: some View {
-        HStack(spacing: 12) {
-            // Product image thumbnail
-            if let imageUrl = product.imageUrl, let url = URL(string: imageUrl) {
-                AsyncImage(url: url) { image in
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Color.gray.opacity(0.2)
-                }
-                .frame(width: 50, height: 50)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            } else {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(.quaternary)
-                    .frame(width: 50, height: 50)
-                    .overlay {
-                        Image(systemName: "photo")
+        ElevatedCard(padding: 16, cornerRadius: 20) {
+            HStack(spacing: 16) {
+                
+                // MARK: - Product Image
+                
+                productImage
+                
+                // MARK: - Text Content
+                
+                VStack(alignment: .leading, spacing: 6) {
+                    
+                    Text(product.displayName)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color("TextPrimary"))
+                        .lineLimit(2)
+                    
+                    if let brand = product.brands,
+                       !brand.isEmpty {
+                        Text(brand)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color("TextSecondary"))
+                            .lineLimit(1)
                     }
-            }
-            
-            // Product info
-            VStack(alignment: .leading, spacing: 2) {
-                Text(product.displayName)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-                
-                if let brand = product.brands, !brand.isEmpty {
-                    Text(brand)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    
+                    if let nutriments = product.nutriments {
+                        Text("\(Int(nutriments.calories)) cal per 100g")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundStyle(Color("BrandAccent"))
+                    }
                 }
                 
-                if let nutriments = product.nutriments {
-                    Text("\(Int(nutriments.calories)) cal/100g")
-                        .font(.caption2)
-                        .foregroundStyle(.blue)
-                }
+                Spacer(minLength: 0)
+                
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(Color("TextTertiary"))
             }
-            
-            Spacer(minLength: 0)
-            
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
         }
-        .padding(12)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+    }
+    
+    // MARK: - Image
+    
+    @ViewBuilder
+    private var productImage: some View {
+        if let imageUrl = product.imageUrl,
+           let url = URL(string: imageUrl) {
+            
+            AsyncImage(url: url) { image in
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } placeholder: {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color("SurfaceElevated"))
+            }
+            .frame(width: 56, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            
+        } else {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color("SurfaceElevated"))
+                .frame(width: 56, height: 56)
+                .overlay {
+                    Image(systemName: "fork.knife")
+                        .font(.caption)
+                        .foregroundStyle(Color("TextSecondary"))
+                }
+        }
     }
 }
 
