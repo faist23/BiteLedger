@@ -10,6 +10,7 @@ struct TodayView: View {
 
     @Environment(\.modelContext) private var modelContext
     @State private var logs: [FoodLog] = []
+    @State private var preferences: UserPreferences?
 
     @State private var selectedMeal: MealType?
     @State private var editingLog: FoodLog?
@@ -28,6 +29,33 @@ struct TodayView: View {
     private var totalCalories: Double {
         todayLogs.reduce(0) { $0 + $1.calories }
     }
+    
+    private var totalProtein: Double {
+        todayLogs.reduce(0) { $0 + $1.protein }
+    }
+    
+    private var totalCarbs: Double {
+        todayLogs.reduce(0) { $0 + $1.carbs }
+    }
+    
+    private var totalFat: Double {
+        todayLogs.reduce(0) { $0 + $1.fat }
+    }
+    
+    private var trackedValue: Double {
+        guard let preferences = preferences else { return totalCalories }
+        switch preferences.trackingMetric {
+        case .calories: return totalCalories
+        case .protein: return totalProtein
+        case .carbs: return totalCarbs
+        case .fat: return totalFat
+        }
+    }
+    
+    private var dailyGoal: Double? {
+        guard let preferences = preferences, preferences.showDailyGoal else { return nil }
+        return preferences.dailyCalorieGoal
+    }
 
     private func caloriesFor(meal: MealType) -> Double {
         todayLogs
@@ -40,32 +68,22 @@ struct TodayView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Sticky header
+                // Sticky header with streak
                 headerSection
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
                     .background(Color("SurfacePrimary"))
                 
-                // Streak display
-                if currentStreak > 0 {
-                    streakBanner
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 12)
-                        .background(Color("SurfacePrimary"))
-                }
-                
                 ScrollView {
-                    VStack(spacing: 28) {
-                        calorieSummaryCard
-
-                        macroRow
+                    VStack(spacing: 16) {
+                        compactSummaryBar
 
                         mealSections
 
                         Spacer(minLength: 60)
                     }
                     .padding(.horizontal, 20)
-                    .padding(.top, 20)
+                    .padding(.top, 16)
                 }
             }
             .background(Color("SurfacePrimary"))
@@ -89,6 +107,7 @@ struct TodayView: View {
             .onAppear {
                 loadLogsForSelectedDate()
                 loadStreak()
+                loadPreferences()
             }
         }
         .sheet(item: $selectedMeal) { meal in
@@ -103,9 +122,12 @@ struct TodayView: View {
                     timestamp = Calendar.current.date(from: components) ?? selectedDate
                 }
 
-                // Insert and save FoodItem first to ensure portions are persisted
-                modelContext.insert(addedItem.foodItem)
-                try? modelContext.save()
+                // Only insert FoodItem if it's not already in the context
+                // (e.g., when copying from an existing log, the FoodItem already exists)
+                if addedItem.foodItem.modelContext == nil {
+                    modelContext.insert(addedItem.foodItem)
+                    try? modelContext.save()
+                }
 
                 let foodLog = FoodLog(
                     foodItem: addedItem.foodItem,
@@ -207,6 +229,76 @@ struct TodayView: View {
             }
         }
     }
+    
+    private func loadPreferences() {
+        let descriptor = FetchDescriptor<UserPreferences>()
+        do {
+            let results = try modelContext.fetch(descriptor)
+            if let existing = results.first {
+                preferences = existing
+            } else {
+                // Create default preferences
+                let newPreferences = UserPreferences()
+                modelContext.insert(newPreferences)
+                try? modelContext.save()
+                preferences = newPreferences
+            }
+        } catch {
+            print("Error loading preferences: \(error)")
+            let newPreferences = UserPreferences()
+            modelContext.insert(newPreferences)
+            try? modelContext.save()
+            preferences = newPreferences
+        }
+    }
+    
+    private func copyMealFromYesterday(meal: MealType) {
+        let calendar = Calendar.current
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: selectedDate) ?? selectedDate
+        let startOfYesterday = calendar.startOfDay(for: yesterday)
+        let endOfYesterday = calendar.date(byAdding: .day, value: 1, to: startOfYesterday)!
+        
+        let descriptor = FetchDescriptor<FoodLog>(
+            predicate: #Predicate { log in
+                log.timestamp >= startOfYesterday && 
+                log.timestamp < endOfYesterday &&
+                log.meal == meal
+            }
+        )
+        
+        do {
+            let yesterdayLogs = try modelContext.fetch(descriptor)
+            
+            for oldLog in yesterdayLogs {
+                guard let foodItem = oldLog.foodItem else { continue }
+                
+                let timestamp: Date
+                if Calendar.current.isDateInToday(selectedDate) {
+                    timestamp = Date()
+                } else {
+                    var components = Calendar.current.dateComponents([.year, .month, .day], from: selectedDate)
+                    components.hour = 12
+                    timestamp = Calendar.current.date(from: components) ?? selectedDate
+                }
+                
+                let newLog = FoodLog(
+                    foodItem: foodItem,
+                    timestamp: timestamp,
+                    meal: meal,
+                    servingMultiplier: oldLog.servingMultiplier,
+                    totalGrams: oldLog.totalGrams,
+                    selectedPortionId: oldLog.selectedPortionId
+                )
+                
+                modelContext.insert(newLog)
+            }
+            
+            try? modelContext.save()
+            loadLogsForSelectedDate()
+        } catch {
+            print("Error copying meals: \(error)")
+        }
+    }
 
     // MARK: - Header
 
@@ -227,9 +319,22 @@ struct TodayView: View {
                 showingDatePicker = true
             } label: {
                 VStack(spacing: 2) {
-                    Text(dateDisplayText)
-                        .font(.system(size: 22, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color("TextPrimary"))
+                    HStack(spacing: 8) {
+                        Text(dateDisplayText)
+                            .font(.system(size: 20, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color("TextPrimary"))
+                        
+                        if currentStreak > 0 {
+                            HStack(spacing: 4) {
+                                Image(systemName: "flame.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.orange)
+                                Text("\(currentStreak)")
+                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                    }
 
                     Text("Daily Ledger")
                         .font(.caption)
@@ -249,105 +354,119 @@ struct TodayView: View {
             }
             .disabled(Calendar.current.isDateInToday(selectedDate))
             .opacity(Calendar.current.isDateInToday(selectedDate) ? 0.3 : 1)
+            
+
         }
     }
     
-    // MARK: - Streak Banner
-    
-    private var streakBanner: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "flame.fill")
-                .font(.title2)
-                .foregroundStyle(.orange)
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(currentStreak) day streak")
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color("TextPrimary"))
-                
-                Text("Keep it going!")
-                    .font(.caption)
-                    .foregroundStyle(Color("TextSecondary"))
-            }
-            
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.orange.opacity(0.1))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.orange.opacity(0.3), lineWidth: 1)
-        )
-    }
+    // MARK: - Compact Summary Bar
 
-    // MARK: - Calorie Card
-
-    private var calorieSummaryCard: some View {
-        ElevatedCard(padding: 24, cornerRadius: 24) {
-            VStack(spacing: 18) {
-                
-                VStack(spacing: 4) {
-                    Text("\(Int(totalCalories))")
-                        .font(.system(size: 44, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color("TextPrimary"))
-                    
-                    Text("calories consumed")
-                        .font(.subheadline)
+    private var compactSummaryBar: some View {
+        VStack(spacing: 12) {
+            // Main tracked metric
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(preferences?.trackingMetric.rawValue ?? "Calories")
+                        .font(.caption)
                         .foregroundStyle(Color("TextSecondary"))
+                    
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("\(Int(trackedValue))")
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color("TextPrimary"))
+                        
+                        if let goal = dailyGoal {
+                            Text("/ \(Int(goal))")
+                                .font(.system(size: 16, weight: .medium, design: .rounded))
+                                .foregroundStyle(Color("TextSecondary"))
+                        }
+                        
+                        Text(preferences?.trackingMetric.unit ?? "cal")
+                            .font(.caption)
+                            .foregroundStyle(Color("TextTertiary"))
+                    }
                 }
                 
-                ProgressView(value: totalCalories, total: 2500)
-                    .tint(Color("BrandPrimary"))
-                    .progressViewStyle(.linear)
-                    .scaleEffect(x: 1, y: 2, anchor: .center)
+                Spacer()
+                
+                // Compact macros
+                HStack(spacing: 12) {
+                    CompactMacro(label: "P", value: totalProtein, color: Color("MacroProtein"))
+                    CompactMacro(label: "C", value: totalCarbs, color: Color("MacroCarbs"))
+                    CompactMacro(label: "F", value: totalFat, color: Color("MacroFat"))
+                }
+            }
+            
+            // Progress bar (only if goal is set)
+            if let goal = dailyGoal {
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        // Background
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color("DividerSubtle"))
+                            .frame(height: 6)
+                        
+                        // Progress
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(progressBarColor)
+                            .frame(width: min(geometry.size.width, geometry.size.width * CGFloat(trackedValue / goal)), height: 6)
+                    }
+                }
+                .frame(height: 6)
             }
         }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color("SurfaceCard"))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color("DividerSubtle"), lineWidth: 1)
+        )
         .onTapGesture {
             showingDailyNutrition = true
         }
     }
-
-    // MARK: - Macros
-
-    private var macroRow: some View {
-        HStack(spacing: 16) {
-            MacroStat(title: "Protein",
-                      value: todayLogs.reduce(0) { $0 + $1.protein },
-                      color: Color("MacroProtein"))
-
-            MacroStat(title: "Carbs",
-                      value: todayLogs.reduce(0) { $0 + $1.carbs },
-                      color: Color("MacroCarbs"))
-
-            MacroStat(title: "Fat",
-                      value: todayLogs.reduce(0) { $0 + $1.fat },
-                      color: Color("MacroFat"))
+    
+    private var progressBarColor: Color {
+        guard let goal = dailyGoal else { return Color("BrandPrimary") }
+        let percentage = trackedValue / goal
+        if percentage < 0.5 {
+            return .green
+        } else if percentage < 0.8 {
+            return .yellow
+        } else if percentage < 1.0 {
+            return .orange
+        } else {
+            return .red
         }
     }
 
     // MARK: - Meals
 
     private var mealSections: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 16) {
             ForEach(MealType.allCases, id: \.self) { meal in
                 MealDiarySection(
                     meal: meal,
                     logs: todayLogs.filter { $0.meal == meal },
                     calories: caloriesFor(meal: meal),
+                    selectedDate: selectedDate,
                     onAddFood: { selectedMeal = meal },
                     onEditLog: { editingLog = $0 },
                     onDeleteLog: { log in
                         modelContext.delete(log)
                         try? modelContext.save()
+                        loadLogsForSelectedDate()
                     },
                     onTapMeal: {
                         if !todayLogs.filter({ $0.meal == meal }).isEmpty {
                             showingMealNutrition = meal
                         }
+                    },
+                    onCopyYesterday: {
+                        copyMealFromYesterday(meal: meal)
                     }
                 )
             }
@@ -377,25 +496,23 @@ struct TodayView: View {
     }
 }
 
-struct MacroStat: View {
-    let title: String
+struct CompactMacro: View {
+    let label: String
     let value: Double
     let color: Color
-
+    
     var body: some View {
-        ElevatedCard(padding: 14, cornerRadius: 16) {
-            VStack(spacing: 6) {
-                Text("\(Int(value))g")
-                    .font(.headline)
-                    .foregroundStyle(color)
-
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(Color("TextSecondary"))
-            }
-            .frame(maxWidth: .infinity)
+        VStack(spacing: 2) {
+            Text("\(Int(value))")
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundStyle(color)
+            
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundStyle(Color("TextSecondary"))
         }
     }
 }
+
 
 

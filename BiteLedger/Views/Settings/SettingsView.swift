@@ -13,14 +13,52 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var allLogs: [FoodLog]
     @Query private var allFoodItems: [FoodItem]
+    @Query private var preferences: [UserPreferences]
     
     @State private var showingImport = false
     @State private var showingExport = false
     @State private var showingDeleteConfirmation = false
+    @State private var showDailyGoal = false
+    @State private var dailyCalorieGoal: Double = 2000
+    @State private var trackingMetric: TrackingMetric = .calories
     
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Picker("Tracking Metric", selection: $trackingMetric) {
+                        ForEach(TrackingMetric.allCases, id: \.self) { metric in
+                            Text(metric.rawValue).tag(metric)
+                        }
+                    }
+                    .onChange(of: trackingMetric) { _, newValue in
+                        updatePreferences()
+                    }
+                    
+                    Toggle("Show Daily Goal", isOn: $showDailyGoal)
+                        .onChange(of: showDailyGoal) { _, newValue in
+                            updatePreferences()
+                        }
+                    
+                    if showDailyGoal {
+                        HStack {
+                            Text("Daily Calorie Goal")
+                            Spacer()
+                            TextField("Goal", value: $dailyCalorieGoal, format: .number)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 100)
+                                .onChange(of: dailyCalorieGoal) { _, newValue in
+                                    updatePreferences()
+                                }
+                        }
+                    }
+                } header: {
+                    Text("Tracking")
+                } footer: {
+                    Text("Choose which metric to track on the home screen. Enable daily goal to show a progress bar.")
+                }
+                
                 Section {
                     Button {
                         showingExport = true
@@ -64,6 +102,9 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .onAppear {
+                loadPreferences()
+            }
             .sheet(isPresented: $showingImport) {
                 LoseItImportView()
             }
@@ -78,6 +119,36 @@ struct SettingsView: View {
             } message: {
                 Text("This will permanently delete all \(allLogs.count) food logs and \(allFoodItems.count) food items. This cannot be undone.")
             }
+        }
+    }
+    
+    private func loadPreferences() {
+        if let prefs = preferences.first {
+            showDailyGoal = prefs.showDailyGoal
+            dailyCalorieGoal = prefs.dailyCalorieGoal ?? 2000
+            trackingMetric = prefs.trackingMetric
+        } else {
+            // Create default preferences
+            let newPrefs = UserPreferences()
+            modelContext.insert(newPrefs)
+            try? modelContext.save()
+        }
+    }
+    
+    private func updatePreferences() {
+        if let prefs = preferences.first {
+            prefs.showDailyGoal = showDailyGoal
+            prefs.dailyCalorieGoal = dailyCalorieGoal
+            prefs.trackingMetric = trackingMetric
+            try? modelContext.save()
+        } else {
+            let newPrefs = UserPreferences(
+                dailyCalorieGoal: dailyCalorieGoal,
+                trackingMetric: trackingMetric,
+                showDailyGoal: showDailyGoal
+            )
+            modelContext.insert(newPrefs)
+            try? modelContext.save()
         }
     }
     

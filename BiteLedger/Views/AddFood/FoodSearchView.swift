@@ -255,7 +255,7 @@ struct FoodSearchView: View {
                             ),
                             servingSize: servingSizeString,
                             quantity: "\(Int(foodItem.gramsPerServing))g",
-                            portions: nil,
+                            portions: foodItem.portions?.map { ServingPortion(id: $0.id, amount: $0.amount, modifier: $0.modifier, gramWeight: $0.gramWeight) },
             countriesTags: nil
                         )
                         selectedProductContext = (productInfo, foodItem, lastServingAmount)
@@ -335,7 +335,7 @@ struct FoodSearchView: View {
                     ),
                     servingSize: servingSizeString,
                     quantity: "\(Int(foodItem.gramsPerServing))g",
-                    portions: nil,
+                    portions: foodItem.portions?.map { ServingPortion(id: $0.id, amount: $0.amount, modifier: $0.modifier, gramWeight: $0.gramWeight) },
             countriesTags: nil
                 )
                 selectedProductContext = (productInfo, foodItem, lastServingAmount)
@@ -375,7 +375,8 @@ struct FoodSearchView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        ForEach(groupedMeals, id: \.date) { meal in
+                        ForEach(groupedMeals.indices, id: \.self) { index in
+                            let meal = groupedMeals[index]
                             VStack(alignment: .leading, spacing: 8) {
                                 // Meal header
                                 HStack {
@@ -448,12 +449,16 @@ struct FoodSearchView: View {
                 sourceLogs: mealWrapper.logs,
                 targetMealType: mealType,
                 onAdd: { selectedLogs in
-                    // Batch add selected logs
+                    // Batch add selected logs - preserve exact gram amounts
                     for log in selectedLogs {
                         if let foodItem = log.foodItem {
+                            // Calculate servings from totalGrams to ensure display consistency
+                            // totalGrams is the source of truth (used for calories)
+                            let servings = foodItem.gramsPerServing > 0 ? log.totalGrams / foodItem.gramsPerServing : 1.0
+                            
                             let addedItem = AddedFoodItem(
                                 foodItem: foodItem,
-                                servings: log.servingMultiplier,
+                                servings: servings,
                                 totalGrams: log.totalGrams,
                                 selectedPortionId: log.selectedPortionId
                             )
@@ -580,7 +585,7 @@ struct FoodSearchView: View {
                 ),
                 servingSize: "\(foodItem.gramsPerServing)g",
                 quantity: "\(Int(foodItem.gramsPerServing))g",
-                portions: nil,
+                portions: foodItem.portions?.map { ServingPortion(id: $0.id, amount: $0.amount, modifier: $0.modifier, gramWeight: $0.gramWeight) },
                 countriesTags: nil
             )
         }

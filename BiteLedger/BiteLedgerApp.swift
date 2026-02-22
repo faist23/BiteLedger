@@ -14,6 +14,6 @@ struct BiteLedgerApp: App {
         WindowGroup {
             ContentView()
         }
-        .modelContainer(for: [FoodItem.self, FoodLog.self])
+        .modelContainer(for: [FoodItem.self, FoodLog.self, UserPreferences.self])
     }
 }
