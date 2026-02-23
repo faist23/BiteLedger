@@ -182,6 +182,10 @@ struct LoseItImporter {
         if let grams = getNumericValue(from: columns, columnMap: columnMap, key: "grams") {
             totalGrams = grams
         }
+        
+        // Parse serving multiplier and unit from amount string
+        // Examples: "2 cup", "1.5 servings", "60g", "1 medium"
+        let (servingMultiplier, servingUnit) = parseServingAmount(amount)
 
         let brand = getValue(from: columns, columnMap: columnMap, key: "brand")
         let cacheKey = "\(name)|\(brand ?? "")"
@@ -190,7 +194,10 @@ struct LoseItImporter {
         if let cached = foodItemCache[cacheKey] {
             foodItem = cached
         } else {
+            // Calculate grams per single serving
+            let gramsPerServing = servingMultiplier > 0 ? totalGrams / servingMultiplier : totalGrams
             let mult = totalGrams / 100.0
+            
             let item = FoodItem(
                 name: name,
                 brand: brand,
@@ -203,8 +210,8 @@ struct LoseItImporter {
                 sodiumPer100g: mult > 0 && sodium > 0 ? (sodium / 1000) / mult : nil,
                 saturatedFatPer100g: mult > 0 && saturatedFat > 0 ? saturatedFat / mult : nil,
                 cholesterolPer100g: mult > 0 && cholesterol > 0 ? (cholesterol / 1000) / mult : nil,
-                servingDescription: amount,
-                gramsPerServing: totalGrams,
+                servingDescription: servingUnit,
+                gramsPerServing: gramsPerServing,
                 source: "CSV Import"
             )
             modelContext.insert(item)
@@ -216,7 +223,7 @@ struct LoseItImporter {
             foodItem: foodItem,
             timestamp: timestamp,
             meal: mealType,
-            servingMultiplier: 1.0,
+            servingMultiplier: servingMultiplier,
             totalGrams: totalGrams
         )
     }
@@ -237,6 +244,53 @@ struct LoseItImporter {
         return Double(cleanedValue)
     }
 
+    private static func parseServingAmount(_ amount: String) -> (multiplier: Double, unit: String) {
+        // Parse strings like "2 cup", "1.5 servings", "60g", "1 medium", "3 tbsp"
+        let trimmed = amount.trimmingCharacters(in: .whitespaces)
+        
+        // Try to extract number from the beginning
+        let components = trimmed.components(separatedBy: .whitespaces)
+        
+        guard !components.isEmpty else {
+            return (1.0, trimmed)
+        }
+        
+        // First component should be the number
+        let firstComponent = components[0]
+        
+        // Check if it's purely numeric (like "60g")
+        if let number = Double(firstComponent) {
+            // Number found, rest is the unit
+            let unit = components.dropFirst().joined(separator: " ")
+            return (number, unit.isEmpty ? "serving" : unit)
+        }
+        
+        // Try to extract number from beginning of string (handles "60g" format)
+        var numberString = ""
+        var unitString = ""
+        var foundDecimal = false
+        
+        for char in trimmed {
+            if char.isNumber || (char == "." && !foundDecimal) {
+                numberString.append(char)
+                if char == "." {
+                    foundDecimal = true
+                }
+            } else {
+                unitString = String(trimmed.dropFirst(numberString.count))
+                break
+            }
+        }
+        
+        if let number = Double(numberString), !unitString.isEmpty {
+            let unit = unitString.trimmingCharacters(in: .whitespaces)
+            return (number, unit)
+        }
+        
+        // Fallback: couldn't parse number, treat whole thing as unit with multiplier 1
+        return (1.0, trimmed)
+    }
+    
     private static func parseMealType(_ typeStr: String) -> MealType {
         let lower = typeStr.lowercased()
         if lower.contains("breakfast") {

@@ -68,9 +68,7 @@ struct MealDiarySection: View {
             let yesterdayLogs = allYesterdayLogs.filter { $0.meal == meal }
             yesterdayCalories = yesterdayLogs.reduce(0) { $0 + $1.calories }
             hasYesterdayMeal = !yesterdayLogs.isEmpty
-            print("🔍 \(meal.rawValue): Found \(yesterdayLogs.count) items from yesterday with \(Int(yesterdayCalories)) calories")
         } catch {
-            print("❌ \(meal.rawValue): Error fetching yesterday's meal: \(error)")
             yesterdayCalories = 0
             hasYesterdayMeal = false
         }
@@ -89,10 +87,13 @@ struct SwipeableYesterdayRow: View {
             // Green "Add" button background
             HStack {
                 Button(action: {
-                    withAnimation {
-                        offset = 0
-                    }
                     onAdd()
+                    // Delay resetting offset so user sees the action happened
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        withAnimation {
+                            offset = 0
+                        }
+                    }
                 }) {
                     Text("Add")
                         .font(.system(size: 16, weight: .semibold))

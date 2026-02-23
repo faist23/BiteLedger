@@ -26,37 +26,6 @@ struct TodayView: View {
         logs
     }
 
-    private var totalCalories: Double {
-        todayLogs.reduce(0) { $0 + $1.calories }
-    }
-    
-    private var totalProtein: Double {
-        todayLogs.reduce(0) { $0 + $1.protein }
-    }
-    
-    private var totalCarbs: Double {
-        todayLogs.reduce(0) { $0 + $1.carbs }
-    }
-    
-    private var totalFat: Double {
-        todayLogs.reduce(0) { $0 + $1.fat }
-    }
-    
-    private var trackedValue: Double {
-        guard let preferences = preferences else { return totalCalories }
-        switch preferences.trackingMetric {
-        case .calories: return totalCalories
-        case .protein: return totalProtein
-        case .carbs: return totalCarbs
-        case .fat: return totalFat
-        }
-    }
-    
-    private var dailyGoal: Double? {
-        guard let preferences = preferences, preferences.showDailyGoal else { return nil }
-        return preferences.dailyCalorieGoal
-    }
-
     private func caloriesFor(meal: MealType) -> Double {
         todayLogs
             .filter { $0.meal == meal }
@@ -76,13 +45,19 @@ struct TodayView: View {
                 
                 ScrollView {
                     VStack(spacing: 16) {
-                        compactSummaryBar
+                        NutritionDashboard(
+                            logs: todayLogs,
+                            preferences: preferences,
+                            onTap: {
+                                showingDailyNutrition = true
+                            }
+                        )
+                        .padding(.horizontal, 20)
 
                         mealSections
 
                         Spacer(minLength: 60)
                     }
-                    .padding(.horizontal, 20)
                     .padding(.top, 16)
                 }
             }
@@ -164,20 +139,32 @@ struct TodayView: View {
         }
         .sheet(isPresented: $showingDatePicker) {
             NavigationStack {
-                DatePicker("Select Date", selection: $selectedDate, displayedComponents: .date)
-                    .datePickerStyle(.graphical)
-                    .padding()
-                Spacer()
-            }
-            .presentationDetents([.medium])
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        showingDatePicker = false
-                        loadLogsForSelectedDate()
+                VStack {
+                    DatePicker("Select Date", selection: $selectedDate, displayedComponents: .date)
+                        .datePickerStyle(.graphical)
+                        .padding()
+                    Spacer()
+                }
+                .navigationTitle("Select Date")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Today") {
+                            selectedDate = Date()
+                            showingDatePicker = false
+                            loadLogsForSelectedDate()
+                        }
+                        .disabled(Calendar.current.isDateInToday(selectedDate))
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") {
+                            showingDatePicker = false
+                            loadLogsForSelectedDate()
+                        }
                     }
                 }
             }
+            .presentationDetents([.medium])
         }
     }
     
@@ -258,16 +245,18 @@ struct TodayView: View {
         let startOfYesterday = calendar.startOfDay(for: yesterday)
         let endOfYesterday = calendar.date(byAdding: .day, value: 1, to: startOfYesterday)!
         
+        // Fetch all logs from yesterday, then filter by meal in memory
+        // (SwiftData predicates can't use captured MealType values)
         let descriptor = FetchDescriptor<FoodLog>(
             predicate: #Predicate { log in
                 log.timestamp >= startOfYesterday && 
-                log.timestamp < endOfYesterday &&
-                log.meal == meal
+                log.timestamp < endOfYesterday
             }
         )
         
         do {
-            let yesterdayLogs = try modelContext.fetch(descriptor)
+            let allYesterdayLogs = try modelContext.fetch(descriptor)
+            let yesterdayLogs = allYesterdayLogs.filter { $0.meal == meal }
             
             for oldLog in yesterdayLogs {
                 guard let foodItem = oldLog.foodItem else { continue }
@@ -358,90 +347,6 @@ struct TodayView: View {
 
         }
     }
-    
-    // MARK: - Compact Summary Bar
-
-    private var compactSummaryBar: some View {
-        VStack(spacing: 12) {
-            // Main tracked metric
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(preferences?.trackingMetric.rawValue ?? "Calories")
-                        .font(.caption)
-                        .foregroundStyle(Color("TextSecondary"))
-                    
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text("\(Int(trackedValue))")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .foregroundStyle(Color("TextPrimary"))
-                        
-                        if let goal = dailyGoal {
-                            Text("/ \(Int(goal))")
-                                .font(.system(size: 16, weight: .medium, design: .rounded))
-                                .foregroundStyle(Color("TextSecondary"))
-                        }
-                        
-                        Text(preferences?.trackingMetric.unit ?? "cal")
-                            .font(.caption)
-                            .foregroundStyle(Color("TextTertiary"))
-                    }
-                }
-                
-                Spacer()
-                
-                // Compact macros
-                HStack(spacing: 12) {
-                    CompactMacro(label: "P", value: totalProtein, color: Color("MacroProtein"))
-                    CompactMacro(label: "C", value: totalCarbs, color: Color("MacroCarbs"))
-                    CompactMacro(label: "F", value: totalFat, color: Color("MacroFat"))
-                }
-            }
-            
-            // Progress bar (only if goal is set)
-            if let goal = dailyGoal {
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        // Background
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color("DividerSubtle"))
-                            .frame(height: 6)
-                        
-                        // Progress
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(progressBarColor)
-                            .frame(width: min(geometry.size.width, geometry.size.width * CGFloat(trackedValue / goal)), height: 6)
-                    }
-                }
-                .frame(height: 6)
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color("SurfaceCard"))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color("DividerSubtle"), lineWidth: 1)
-        )
-        .onTapGesture {
-            showingDailyNutrition = true
-        }
-    }
-    
-    private var progressBarColor: Color {
-        guard let goal = dailyGoal else { return Color("BrandPrimary") }
-        let percentage = trackedValue / goal
-        if percentage < 0.5 {
-            return .green
-        } else if percentage < 0.8 {
-            return .yellow
-        } else if percentage < 1.0 {
-            return .orange
-        } else {
-            return .red
-        }
-    }
 
     // MARK: - Meals
 
@@ -495,24 +400,4 @@ struct TodayView: View {
         return formatter.string(from: selectedDate)
     }
 }
-
-struct CompactMacro: View {
-    let label: String
-    let value: Double
-    let color: Color
-    
-    var body: some View {
-        VStack(spacing: 2) {
-            Text("\(Int(value))")
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                .foregroundStyle(color)
-            
-            Text(label)
-                .font(.system(size: 10))
-                .foregroundStyle(Color("TextSecondary"))
-        }
-    }
-}
-
-
 

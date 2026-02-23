@@ -22,11 +22,26 @@ struct NutritionFacts: Codable {
     var polyunsaturatedFatPer100g: Double?
     var cholesterolPer100g: Double?
     
-    // Vitamins and minerals
+    // Additional minerals
+    var magnesiumPer100g: Double?
+    var zincPer100g: Double?
+    
+    // Vitamins
     var vitaminAPer100g: Double?
     var vitaminCPer100g: Double?
     var vitaminDPer100g: Double?
+    var vitaminEPer100g: Double?
+    var vitaminKPer100g: Double?
+    var vitaminB6Per100g: Double?
+    var vitaminB12Per100g: Double?
+    var folatePer100g: Double?
+    var cholinePer100g: Double?
+    
+    // Minerals
     var calciumPer100g: Double?
     var ironPer100g: Double?
     var potassiumPer100g: Double?
+    
+    // Special tracking
+    var caffeinePer100g: Double?
 }

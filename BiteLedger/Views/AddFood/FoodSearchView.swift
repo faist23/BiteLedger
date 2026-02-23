@@ -96,6 +96,15 @@ struct FoodSearchView: View {
                         .tint(Color("BrandAccent"))
 
                         Button {
+                            quickAddWater()
+                        } label: {
+                            Label("Water", systemImage: "drop.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Color("BrandAccent"))
+
+                        Button {
                             showManualEntry = true
                         } label: {
                             Label("Manual", systemImage: "pencil")
@@ -187,9 +196,9 @@ struct FoodSearchView: View {
     
     // MARK: - Tab Content Views
     
+    @ViewBuilder
     private var searchTabContent: some View {
-        Group {
-            if let errorMessage {
+        if let errorMessage {
                 ContentUnavailableView {
                     Label("Error", systemImage: "exclamationmark.triangle")
                 } description: {
@@ -241,9 +250,18 @@ struct FoodSearchView: View {
                                 vitaminA100g: foodItem.vitaminAPer100g.map { FlexibleDouble($0) },
                                 vitaminC100g: foodItem.vitaminCPer100g.map { FlexibleDouble($0) },
                                 vitaminD100g: foodItem.vitaminDPer100g.map { FlexibleDouble($0) },
+                                vitaminE100g: foodItem.vitaminEPer100g.map { FlexibleDouble($0) },
+                                vitaminK100g: foodItem.vitaminKPer100g.map { FlexibleDouble($0) },
+                                vitaminB6100g: foodItem.vitaminB6Per100g.map { FlexibleDouble($0) },
+                                vitaminB12100g: foodItem.vitaminB12Per100g.map { FlexibleDouble($0) },
+                                folate100g: foodItem.folatePer100g.map { FlexibleDouble($0) },
+                                choline100g: foodItem.cholinePer100g.map { FlexibleDouble($0) },
                                 calcium100g: foodItem.calciumPer100g.map { FlexibleDouble($0) },
                                 iron100g: foodItem.ironPer100g.map { FlexibleDouble($0) },
                                 potassium100g: foodItem.potassiumPer100g.map { FlexibleDouble($0) },
+                                magnesium100g: foodItem.magnesiumPer100g.map { FlexibleDouble($0) },
+                                zinc100g: foodItem.zincPer100g.map { FlexibleDouble($0) },
+                                caffeine100g: foodItem.caffeinePer100g.map { FlexibleDouble($0) },
                                 energyKcalServing: nil,
                                 proteinsServing: nil,
                                 carbohydratesServing: nil,
@@ -274,7 +292,6 @@ struct FoodSearchView: View {
                     .padding()
                 }
             }
-        }
     }
     
     private var myFoodsTabContent: some View {
@@ -321,9 +338,18 @@ struct FoodSearchView: View {
                         vitaminA100g: foodItem.vitaminAPer100g.map { FlexibleDouble($0) },
                         vitaminC100g: foodItem.vitaminCPer100g.map { FlexibleDouble($0) },
                         vitaminD100g: foodItem.vitaminDPer100g.map { FlexibleDouble($0) },
+                        vitaminE100g: foodItem.vitaminEPer100g.map { FlexibleDouble($0) },
+                        vitaminK100g: foodItem.vitaminKPer100g.map { FlexibleDouble($0) },
+                        vitaminB6100g: foodItem.vitaminB6Per100g.map { FlexibleDouble($0) },
+                        vitaminB12100g: foodItem.vitaminB12Per100g.map { FlexibleDouble($0) },
+                        folate100g: foodItem.folatePer100g.map { FlexibleDouble($0) },
+                        choline100g: foodItem.cholinePer100g.map { FlexibleDouble($0) },
                         calcium100g: foodItem.calciumPer100g.map { FlexibleDouble($0) },
                         iron100g: foodItem.ironPer100g.map { FlexibleDouble($0) },
                         potassium100g: foodItem.potassiumPer100g.map { FlexibleDouble($0) },
+                        magnesium100g: foodItem.magnesiumPer100g.map { FlexibleDouble($0) },
+                        zinc100g: foodItem.zincPer100g.map { FlexibleDouble($0) },
+                        caffeine100g: foodItem.caffeinePer100g.map { FlexibleDouble($0) },
                         energyKcalServing: nil,
                         proteinsServing: nil,
                         carbohydratesServing: nil,
@@ -525,6 +551,38 @@ struct FoodSearchView: View {
             }
         }
     }
+    
+    private func quickAddWater() {
+        // Create a standard water FoodItem (1 cup = 8 fl oz / 237ml)
+        let waterItem = FoodItem(
+            barcode: nil,
+            name: "Water",
+            brand: nil,
+            caloriesPer100g: 0,
+            proteinPer100g: 0,
+            carbsPer100g: 0,
+            fatPer100g: 0,
+            servingDescription: "cup",
+            gramsPerServing: 237, // 1 cup = 8 fl oz = ~237g
+            servingSizeIsEstimated: false,
+            source: "Quick Add",
+            imageURL: nil
+        )
+        
+        // Add to model context so it's saved
+        modelContext.insert(waterItem)
+        
+        // Add 1 cup (8 fl oz / 237g)
+        let addedItem = AddedFoodItem(
+            foodItem: waterItem,
+            servings: 1.0,
+            totalGrams: 237,
+            selectedPortionId: nil
+        )
+        
+        onFoodAdded(addedItem)
+        dismiss()
+    }
 
     private func searchMyFoods(query: String) -> [ProductInfo] {
         // Get unique food items from logs
@@ -571,9 +629,18 @@ struct FoodSearchView: View {
                     vitaminA100g: foodItem.vitaminAPer100g.map { FlexibleDouble($0) },
                     vitaminC100g: foodItem.vitaminCPer100g.map { FlexibleDouble($0) },
                     vitaminD100g: foodItem.vitaminDPer100g.map { FlexibleDouble($0) },
+                    vitaminE100g: foodItem.vitaminEPer100g.map { FlexibleDouble($0) },
+                    vitaminK100g: foodItem.vitaminKPer100g.map { FlexibleDouble($0) },
+                    vitaminB6100g: foodItem.vitaminB6Per100g.map { FlexibleDouble($0) },
+                    vitaminB12100g: foodItem.vitaminB12Per100g.map { FlexibleDouble($0) },
+                    folate100g: foodItem.folatePer100g.map { FlexibleDouble($0) },
+                    choline100g: foodItem.cholinePer100g.map { FlexibleDouble($0) },
                     calcium100g: foodItem.calciumPer100g.map { FlexibleDouble($0) },
                     iron100g: foodItem.ironPer100g.map { FlexibleDouble($0) },
                     potassium100g: foodItem.potassiumPer100g.map { FlexibleDouble($0) },
+                    magnesium100g: foodItem.magnesiumPer100g.map { FlexibleDouble($0) },
+                    zinc100g: foodItem.zincPer100g.map { FlexibleDouble($0) },
+                    caffeine100g: foodItem.caffeinePer100g.map { FlexibleDouble($0) },
                     energyKcalServing: nil,
                     proteinsServing: nil,
                     carbohydratesServing: nil,
@@ -811,9 +878,20 @@ struct FoodItemRow: View {
                         .lineLimit(1)
                 }
                 
-                Text("\(Int(foodItem.caloriesPer100g)) cal/\(foodItem.servingDescription)")
-                    .font(.caption2)
-                    .foregroundStyle(.blue)
+                HStack(spacing: 4) {
+                    Text("\(Int(foodItem.caloriesPer100g)) cal/\(foodItem.servingDescription)")
+                        .font(.caption2)
+                        .foregroundStyle(.blue)
+                    
+                    if let lastUsed = foodItem.lastUsed {
+                        Text("•")
+                            .foregroundStyle(.secondary)
+                            .font(.caption2)
+                        Text(lastUsedText(for: lastUsed))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             
             Spacer(minLength: 0)
@@ -826,6 +904,31 @@ struct FoodItemRow: View {
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
         .onTapGesture {
             onTap()
+        }
+    }
+    
+    private func lastUsedText(for date: Date) -> String {
+        let calendar = Calendar.current
+        let now = Date()
+        
+        if calendar.isDateInToday(date) {
+            return "today"
+        } else if calendar.isDateInYesterday(date) {
+            return "yesterday"
+        } else {
+            let days = calendar.dateComponents([.day], from: date, to: now).day ?? 0
+            if days < 7 {
+                return "\(days)d ago"
+            } else if days < 30 {
+                let weeks = days / 7
+                return "\(weeks)w ago"
+            } else if days < 365 {
+                let months = days / 30
+                return "\(months)mo ago"
+            } else {
+                let years = days / 365
+                return "\(years)y ago"
+            }
         }
     }
     

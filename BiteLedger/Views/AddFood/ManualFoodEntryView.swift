@@ -33,9 +33,20 @@ struct ManualFoodEntryView: View {
     @State private var vitaminA = ""
     @State private var vitaminC = ""
     @State private var vitaminD = ""
+    @State private var vitaminE = ""
+    @State private var vitaminK = ""
+    @State private var vitaminB6 = ""
+    @State private var vitaminB12 = ""
+    @State private var folate = ""
+    @State private var choline = ""
     @State private var calcium = ""
     @State private var iron = ""
     @State private var potassium = ""
+    @State private var magnesium = ""
+    @State private var zinc = ""
+    @State private var caffeine = ""
+    @State private var monounsaturatedFat = ""
+    @State private var polyunsaturatedFat = ""
     
     @State private var showingServingSizePicker = false
     @State private var showingAmountPicker = false
@@ -262,6 +273,8 @@ struct ManualFoodEntryView: View {
                     ManualNutritionRow(label: "Total Fat", value: $totalFat, unit: "g")
                     ManualNutritionRow(label: "  Saturated Fat", value: $saturatedFat, unit: "g", isIndented: true)
                     ManualNutritionRow(label: "  Trans Fat", value: $transFat, unit: "g", isIndented: true)
+                    ManualNutritionRow(label: "  Monounsaturated Fat", value: $monounsaturatedFat, unit: "g", isIndented: true)
+                    ManualNutritionRow(label: "  Polyunsaturated Fat", value: $polyunsaturatedFat, unit: "g", isIndented: true)
                 }
                 
                 Section("Other Nutrients") {
@@ -283,9 +296,18 @@ struct ManualFoodEntryView: View {
                     ManualNutritionRow(label: "Vitamin A", value: $vitaminA, unit: "μg")
                     ManualNutritionRow(label: "Vitamin C", value: $vitaminC, unit: "mg")
                     ManualNutritionRow(label: "Vitamin D", value: $vitaminD, unit: "μg")
+                    ManualNutritionRow(label: "Vitamin E", value: $vitaminE, unit: "mg")
+                    ManualNutritionRow(label: "Vitamin K", value: $vitaminK, unit: "μg")
+                    ManualNutritionRow(label: "Vitamin B6", value: $vitaminB6, unit: "mg")
+                    ManualNutritionRow(label: "Vitamin B12", value: $vitaminB12, unit: "μg")
+                    ManualNutritionRow(label: "Folate", value: $folate, unit: "μg")
+                    ManualNutritionRow(label: "Choline", value: $choline, unit: "mg")
                     ManualNutritionRow(label: "Calcium", value: $calcium, unit: "mg")
                     ManualNutritionRow(label: "Iron", value: $iron, unit: "mg")
                     ManualNutritionRow(label: "Potassium", value: $potassium, unit: "mg")
+                    ManualNutritionRow(label: "Magnesium", value: $magnesium, unit: "mg")
+                    ManualNutritionRow(label: "Zinc", value: $zinc, unit: "mg")
+                    ManualNutritionRow(label: "Caffeine", value: $caffeine, unit: "mg")
                 }
             }
             .navigationTitle("New Food")
@@ -375,6 +397,45 @@ struct ManualFoodEntryView: View {
         if let pot = data.potassium {
             potassium = String(format: "%.0f", pot)
         }
+        if let vitA = data.vitaminA {
+            vitaminA = String(format: "%.1f", vitA)
+        }
+        if let vitC = data.vitaminC {
+            vitaminC = String(format: "%.1f", vitC)
+        }
+        if let vitE = data.vitaminE {
+            vitaminE = String(format: "%.1f", vitE)
+        }
+        if let vitK = data.vitaminK {
+            vitaminK = String(format: "%.1f", vitK)
+        }
+        if let vitB6 = data.vitaminB6 {
+            vitaminB6 = String(format: "%.1f", vitB6)
+        }
+        if let vitB12 = data.vitaminB12 {
+            vitaminB12 = String(format: "%.1f", vitB12)
+        }
+        if let fol = data.folate {
+            folate = String(format: "%.1f", fol)
+        }
+        if let chol = data.choline {
+            choline = String(format: "%.1f", chol)
+        }
+        if let mag = data.magnesium {
+            magnesium = String(format: "%.0f", mag)
+        }
+        if let zn = data.zinc {
+            zinc = String(format: "%.1f", zn)
+        }
+        if let caff = data.caffeine {
+            caffeine = String(format: "%.0f", caff)
+        }
+        if let monoFat = data.monounsaturatedFat {
+            monounsaturatedFat = String(format: "%.1f", monoFat)
+        }
+        if let polyFat = data.polyunsaturatedFat {
+            polyunsaturatedFat = String(format: "%.1f", polyFat)
+        }
     }
     
     private func addManualFood() {
@@ -415,15 +476,24 @@ struct ManualFoodEntryView: View {
             sodiumPer100g: mgToG(sodium).map { $0 / per100gDivisor },
             saturatedFatPer100g: saturatedFat.isEmpty ? nil : (Double(saturatedFat)! / per100gDivisor),
             transFatPer100g: transFat.isEmpty ? nil : (Double(transFat)! / per100gDivisor),
-            monounsaturatedFatPer100g: nil,
-            polyunsaturatedFatPer100g: nil,
+            monounsaturatedFatPer100g: monounsaturatedFat.isEmpty ? nil : (Double(monounsaturatedFat)! / per100gDivisor),
+            polyunsaturatedFatPer100g: polyunsaturatedFat.isEmpty ? nil : (Double(polyunsaturatedFat)! / per100gDivisor),
             cholesterolPer100g: mgToG(cholesterol).map { $0 / per100gDivisor },
+            magnesiumPer100g: mgToG(magnesium).map { $0 / per100gDivisor },
+            zincPer100g: mgToG(zinc).map { $0 / per100gDivisor },
             vitaminAPer100g: ugToG(vitaminA).map { $0 / per100gDivisor },
             vitaminCPer100g: mgToG(vitaminC).map { $0 / per100gDivisor },
             vitaminDPer100g: ugToG(vitaminD).map { $0 / per100gDivisor },
+            vitaminEPer100g: mgToG(vitaminE).map { $0 / per100gDivisor },
+            vitaminKPer100g: ugToG(vitaminK).map { $0 / per100gDivisor },
+            vitaminB6Per100g: mgToG(vitaminB6).map { $0 / per100gDivisor },
+            vitaminB12Per100g: ugToG(vitaminB12).map { $0 / per100gDivisor },
+            folatePer100g: ugToG(folate).map { $0 / per100gDivisor },
+            cholinePer100g: mgToG(choline).map { $0 / per100gDivisor },
             calciumPer100g: mgToG(calcium).map { $0 / per100gDivisor },
             ironPer100g: mgToG(iron).map { $0 / per100gDivisor },
             potassiumPer100g: mgToG(potassium).map { $0 / per100gDivisor },
+            caffeinePer100g: mgToG(caffeine).map { $0 / per100gDivisor },
             servingDescription: servingDescription,
             gramsPerServing: actualGramsPerServing,
             servingSizeIsEstimated: servingWeight.isEmpty,
@@ -920,7 +990,7 @@ struct WebsiteImportView: View {
                     dismiss()
                 }
             } else {
-                errorMessage = "Could not find nutrition information on this page"
+                errorMessage = "Could not find nutrition information. Many websites load nutrition data with JavaScript which can't be imported. Try using 'Paste Nutrition Text' instead - copy the nutrition facts from the website and paste them."
             }
         } catch {
             errorMessage = "Error fetching page: \(error.localizedDescription)"
@@ -930,86 +1000,229 @@ struct WebsiteImportView: View {
     }
     
     private func parseNutritionFromHTML(_ html: String) -> NutritionData? {
-        // Simple regex-based parsing for common patterns
-        var nutritionData = NutritionData()
+        // Strip HTML tags and normalize whitespace for easier parsing
+        let cleanedHTML = html.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         
-        // Calories - match patterns like "Calories 2961 kcal" or "Calories: 296"
-        if let caloriesMatch = html.range(of: #"(?i)calories[\s:]+(\d+(?:\.\d+)?)"#, options: .regularExpression) {
-            let caloriesStr = String(html[caloriesMatch])
-            if let value = extractNumber(from: caloriesStr) {
-                nutritionData.calories = value
+        print("🌐 Cleaned HTML preview (first 500 chars):")
+        print(String(cleanedHTML.prefix(500)))
+        print("---")
+        
+        // Try to find JSON-LD structured data which many sites use for nutrition
+        if let jsonLDMatch = html.range(of: #"<script type=\"application\/ld\+json\">(.*?)<\/script>"#, options: .regularExpression) {
+            let jsonString = String(html[jsonLDMatch])
+            print("📊 Found JSON-LD data")
+            // Try to parse nutrition from structured data
+            if let nutrition = parseStructuredData(jsonString) {
+                return nutrition
             }
         }
         
-        // Fat - match "Fat 17.4 g" or "Total Fat: 17g"
-        if let fatMatch = html.range(of: #"(?i)(?:total\s)?fat[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
-            let fatStr = String(html[fatMatch])
-            if let value = extractNumber(from: fatStr) {
+        var nutritionData = NutritionData()
+        
+        // Calories - try multiple patterns
+        let caloriePatterns = [
+            #"(?i)calories[\s:]+(\d+(?:\.\d+)?)"#,
+            #"(?i)(\d+(?:\.\d+)?)\s*calories"#,
+            #"(?i)(\d+(?:\.\d+)?)\s*kcal"#,
+            #"(?i)energy[\s:]+(\d+(?:\.\d+)?)"#
+        ]
+        for pattern in caloriePatterns {
+            if let match = cleanedHTML.range(of: pattern, options: .regularExpression),
+               let value = extractNumber(from: String(cleanedHTML[match])) {
+                nutritionData.calories = value
+                print("✅ Found calories: \(value)")
+                break
+            }
+        }
+        
+        // Total Fat
+        if let fatMatch = cleanedHTML.range(of: #"(?i)total\s+fat[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[fatMatch])) {
                 nutritionData.totalFat = value
             }
         }
         
         // Saturated Fat
-        if let satFatMatch = html.range(of: #"(?i)saturated\s+fat[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
-            let satFatStr = String(html[satFatMatch])
-            if let value = extractNumber(from: satFatStr) {
+        if let satFatMatch = cleanedHTML.range(of: #"(?i)saturated\s+fat[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[satFatMatch])) {
                 nutritionData.saturatedFat = value
             }
         }
         
         // Trans Fat
-        if let transFatMatch = html.range(of: #"(?i)trans\s+fat[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
-            let transFatStr = String(html[transFatMatch])
-            if let value = extractNumber(from: transFatStr) {
+        if let transFatMatch = cleanedHTML.range(of: #"(?i)trans\s+fat[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[transFatMatch])) {
                 nutritionData.transFat = value
             }
         }
         
-        // Cholesterol - match "Cholesterol 55.1 mg"
-        if let cholMatch = html.range(of: #"(?i)cholesterol[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
-            let cholStr = String(html[cholMatch])
-            if let value = extractNumber(from: cholStr) {
+        // Monounsaturated Fat
+        if let monoFatMatch = cleanedHTML.range(of: #"(?i)monounsaturated\s+fat[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[monoFatMatch])) {
+                nutritionData.monounsaturatedFat = value
+            }
+        }
+        
+        // Polyunsaturated Fat
+        if let polyFatMatch = cleanedHTML.range(of: #"(?i)polyunsaturated\s+fat[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[polyFatMatch])) {
+                nutritionData.polyunsaturatedFat = value
+            }
+        }
+        
+        // Cholesterol
+        if let cholMatch = cleanedHTML.range(of: #"(?i)cholesterol[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[cholMatch])) {
                 nutritionData.cholesterol = value
             }
         }
         
-        // Sodium - match "Sodium 814 mg"
-        if let sodiumMatch = html.range(of: #"(?i)sodium[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
-            let sodiumStr = String(html[sodiumMatch])
-            if let value = extractNumber(from: sodiumStr) {
+        // Sodium
+        if let sodiumMatch = cleanedHTML.range(of: #"(?i)sodium[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[sodiumMatch])) {
                 nutritionData.sodium = value
             }
         }
         
-        // Carbohydrates - match "Carbohydrates 30.7 g"
-        if let carbsMatch = html.range(of: #"(?i)(?:total\s)?carbohydrate(?:s)?[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
-            let carbsStr = String(html[carbsMatch])
-            if let value = extractNumber(from: carbsStr) {
+        // Total Carbohydrates
+        if let carbsMatch = cleanedHTML.range(of: #"(?i)total\s+carbohydrate(?:s)?[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[carbsMatch])) {
                 nutritionData.totalCarbs = value
             }
         }
         
-        // Fiber - match "Fiber 0.6 g"
-        if let fiberMatch = html.range(of: #"(?i)(?:dietary\s)?fiber[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
-            let fiberStr = String(html[fiberMatch])
-            if let value = extractNumber(from: fiberStr) {
+        // Dietary Fiber
+        if let fiberMatch = cleanedHTML.range(of: #"(?i)dietary\s+fiber[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[fiberMatch])) {
                 nutritionData.fiber = value
             }
         }
         
-        // Sugar - match "Sugar 28.6 g"
-        if let sugarMatch = html.range(of: #"(?i)(?:total\s)?sugar(?:s)?[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
-            let sugarStr = String(html[sugarMatch])
-            if let value = extractNumber(from: sugarStr) {
+        // Total Sugars
+        if let sugarMatch = cleanedHTML.range(of: #"(?i)total\s+sugars[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[sugarMatch])) {
                 nutritionData.sugars = value
             }
         }
         
-        // Protein - match "Protein 3.2 g" or "Proteins 3.2 g"
-        if let proteinMatch = html.range(of: #"(?i)proteins?[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
-            let proteinStr = String(html[proteinMatch])
-            if let value = extractNumber(from: proteinStr) {
+        // Added Sugars
+        if let addedSugarMatch = cleanedHTML.range(of: #"(?i)(?:incl\.\s+)?added\s+sugars[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[addedSugarMatch])) {
+                nutritionData.addedSugars = value
+            }
+        }
+        
+        // Protein
+        if let proteinMatch = cleanedHTML.range(of: #"(?i)proteins?[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[proteinMatch])) {
                 nutritionData.protein = value
+            }
+        }
+        
+        // Vitamin D
+        if let vitDMatch = cleanedHTML.range(of: #"(?i)vitamin\s+d[\s:]+(\d+(?:\.\d+)?)\s*[µu]g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[vitDMatch])) {
+                nutritionData.vitaminD = value
+            }
+        }
+        
+        // Calcium
+        if let calciumMatch = cleanedHTML.range(of: #"(?i)calcium[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[calciumMatch])) {
+                nutritionData.calcium = value
+            }
+        }
+        
+        // Iron
+        if let ironMatch = cleanedHTML.range(of: #"(?i)iron[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[ironMatch])) {
+                nutritionData.iron = value
+            }
+        }
+        
+        // Potassium
+        if let potassiumMatch = cleanedHTML.range(of: #"(?i)potassium[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[potassiumMatch])) {
+                nutritionData.potassium = value
+            }
+        }
+        
+        // Vitamin A
+        if let vitAMatch = cleanedHTML.range(of: #"(?i)vitamin\s+a[\s:]+(\d+(?:\.\d+)?)\s*[µu]g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[vitAMatch])) {
+                nutritionData.vitaminA = value
+            }
+        }
+        
+        // Vitamin C
+        if let vitCMatch = cleanedHTML.range(of: #"(?i)vitamin\s+c[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[vitCMatch])) {
+                nutritionData.vitaminC = value
+            }
+        }
+        
+        // Vitamin E
+        if let vitEMatch = cleanedHTML.range(of: #"(?i)vitamin\s+e[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[vitEMatch])) {
+                nutritionData.vitaminE = value
+            }
+        }
+        
+        // Vitamin K
+        if let vitKMatch = cleanedHTML.range(of: #"(?i)vitamin\s+k[\s:]+(\d+(?:\.\d+)?)\s*[µu]g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[vitKMatch])) {
+                nutritionData.vitaminK = value
+            }
+        }
+        
+        // Vitamin B6
+        if let vitB6Match = cleanedHTML.range(of: #"(?i)vitamin\s+b[\s-]?6[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[vitB6Match])) {
+                nutritionData.vitaminB6 = value
+            }
+        }
+        
+        // Vitamin B12
+        if let vitB12Match = cleanedHTML.range(of: #"(?i)vitamin\s+b[\s-]?12[\s:]+(\d+(?:\.\d+)?)\s*[µu]g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[vitB12Match])) {
+                nutritionData.vitaminB12 = value
+            }
+        }
+        
+        // Folate
+        if let folateMatch = cleanedHTML.range(of: #"(?i)folate[\s:]+(\d+(?:\.\d+)?)\s*[µu]g"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[folateMatch])) {
+                nutritionData.folate = value
+            }
+        }
+        
+        // Choline
+        if let cholineMatch = cleanedHTML.range(of: #"(?i)choline[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[cholineMatch])) {
+                nutritionData.choline = value
+            }
+        }
+        
+        // Magnesium
+        if let magnesiumMatch = cleanedHTML.range(of: #"(?i)magnesium[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[magnesiumMatch])) {
+                nutritionData.magnesium = value
+            }
+        }
+        
+        // Zinc
+        if let zincMatch = cleanedHTML.range(of: #"(?i)zinc[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[zincMatch])) {
+                nutritionData.zinc = value
+            }
+        }
+        
+        // Caffeine
+        if let caffeineMatch = cleanedHTML.range(of: #"(?i)caffeine[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression) {
+            if let value = extractNumber(from: String(cleanedHTML[caffeineMatch])) {
+                nutritionData.caffeine = value
             }
         }
         
@@ -1021,6 +1234,40 @@ struct WebsiteImportView: View {
         let pattern = #"(\d+(?:\.\d+)?)"#
         guard let range = text.range(of: pattern, options: .regularExpression) else { return nil }
         return Double(String(text[range]))
+    }
+    
+    private func parseStructuredData(_ jsonString: String) -> NutritionData? {
+        // Extract JSON content between script tags
+        guard let jsonStart = jsonString.range(of: ">")?.upperBound,
+              let jsonEnd = jsonString.range(of: "</script>", options: .backwards)?.lowerBound else {
+            return nil
+        }
+        
+        let jsonContent = String(jsonString[jsonStart..<jsonEnd])
+        guard let jsonData = jsonContent.data(using: .utf8) else { return nil }
+        
+        do {
+            if let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+               let nutrition = json["nutrition"] as? [String: Any] {
+                
+                var nutritionData = NutritionData()
+                
+                if let calories = nutrition["calories"] as? Double {
+                    nutritionData.calories = calories
+                } else if let caloriesStr = nutrition["calories"] as? String,
+                          let calories = Double(caloriesStr) {
+                    nutritionData.calories = calories
+                }
+                
+                // Add more nutrient parsing as needed
+                print("✅ Parsed nutrition from JSON-LD")
+                return nutritionData
+            }
+        } catch {
+            print("❌ Failed to parse JSON: \(error)")
+        }
+        
+        return nil
     }
 }
 
@@ -1077,10 +1324,10 @@ struct PasteTextImportView: View {
     private func parseNutritionFromText(_ text: String) -> NutritionData? {
         var nutritionData = NutritionData()
         
-        // Normalize text - remove extra whitespace, newlines
-        let normalizedText = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        // Normalize text - collapse multiple spaces but keep basic structure
+        let normalizedText = text.replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
         
-        // Calories - match patterns like "Calories 2961 kcal" or "Calories: 296" or "2961 kcal"
+        // Calories - match patterns like "Calories 190" or "Calories: 190" or "190 kcal"
         let caloriesPatterns = [
             #"(?i)calories[\s:]+(\d+(?:\.\d+)?)"#,
             #"(\d+(?:\.\d+)?)\s*kcal"#
@@ -1093,8 +1340,8 @@ struct PasteTextImportView: View {
             }
         }
         
-        // Fat - match "Fat 17.4 g" or "17.4 g" (if near "Fat" keyword)
-        if let fatMatch = normalizedText.range(of: #"(?i)(?:total\s)?fat[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression),
+        // Total Fat
+        if let fatMatch = normalizedText.range(of: #"(?i)total\s+fat[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression),
            let value = extractNumber(from: String(normalizedText[fatMatch])) {
             nutritionData.totalFat = value
         }
@@ -1111,6 +1358,18 @@ struct PasteTextImportView: View {
             nutritionData.transFat = value
         }
         
+        // Monounsaturated Fat
+        if let monoFatMatch = normalizedText.range(of: #"(?i)monounsaturated\s+fat[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[monoFatMatch])) {
+            nutritionData.monounsaturatedFat = value
+        }
+        
+        // Polyunsaturated Fat
+        if let polyFatMatch = normalizedText.range(of: #"(?i)polyunsaturated\s+fat[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[polyFatMatch])) {
+            nutritionData.polyunsaturatedFat = value
+        }
+        
         // Cholesterol
         if let cholMatch = normalizedText.range(of: #"(?i)cholesterol[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression),
            let value = extractNumber(from: String(normalizedText[cholMatch])) {
@@ -1123,28 +1382,127 @@ struct PasteTextImportView: View {
             nutritionData.sodium = value
         }
         
-        // Carbohydrates
-        if let carbsMatch = normalizedText.range(of: #"(?i)(?:total\s)?carbohydrate(?:s)?[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression),
+        // Total Carbohydrates
+        if let carbsMatch = normalizedText.range(of: #"(?i)total\s+carbohydrate(?:s)?[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression),
            let value = extractNumber(from: String(normalizedText[carbsMatch])) {
             nutritionData.totalCarbs = value
         }
         
-        // Fiber
-        if let fiberMatch = normalizedText.range(of: #"(?i)(?:dietary\s)?fiber[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression),
+        // Dietary Fiber
+        if let fiberMatch = normalizedText.range(of: #"(?i)dietary\s+fiber[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression),
            let value = extractNumber(from: String(normalizedText[fiberMatch])) {
             nutritionData.fiber = value
         }
         
-        // Sugar
-        if let sugarMatch = normalizedText.range(of: #"(?i)(?:total\s)?sugar(?:s)?[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression),
+        // Total Sugars (prioritize "Total Sugars" over just "Sugars")
+        if let sugarMatch = normalizedText.range(of: #"(?i)total\s+sugars[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression),
            let value = extractNumber(from: String(normalizedText[sugarMatch])) {
+            nutritionData.sugars = value
+        } else if let sugarMatch = normalizedText.range(of: #"(?i)(?<!added\s)(?<!total\s)sugars[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression),
+                  let value = extractNumber(from: String(normalizedText[sugarMatch])) {
             nutritionData.sugars = value
         }
         
-        // Protein (handles both "Protein" and "Proteins")
+        // Added Sugars
+        if let addedSugarMatch = normalizedText.range(of: #"(?i)(?:incl\.\s+)?added\s+sugars[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[addedSugarMatch])) {
+            nutritionData.addedSugars = value
+        }
+        
+        // Protein
         if let proteinMatch = normalizedText.range(of: #"(?i)proteins?[\s:]+(\d+(?:\.\d+)?)\s*g"#, options: .regularExpression),
            let value = extractNumber(from: String(normalizedText[proteinMatch])) {
             nutritionData.protein = value
+        }
+        
+        // Vitamin D
+        if let vitDMatch = normalizedText.range(of: #"(?i)vitamin\s+d[\s:]+(\d+(?:\.\d+)?)\s*[µu]g"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[vitDMatch])) {
+            nutritionData.vitaminD = value
+        }
+        
+        // Calcium
+        if let calciumMatch = normalizedText.range(of: #"(?i)calcium[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[calciumMatch])) {
+            nutritionData.calcium = value
+        }
+        
+        // Iron
+        if let ironMatch = normalizedText.range(of: #"(?i)iron[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[ironMatch])) {
+            nutritionData.iron = value
+        }
+        
+        // Potassium
+        if let potassiumMatch = normalizedText.range(of: #"(?i)potassium[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[potassiumMatch])) {
+            nutritionData.potassium = value
+        }
+        
+        // Vitamin A
+        if let vitAMatch = normalizedText.range(of: #"(?i)vitamin\s+a[\s:]+(\d+(?:\.\d+)?)\s*[µu]g"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[vitAMatch])) {
+            nutritionData.vitaminA = value
+        }
+        
+        // Vitamin C
+        if let vitCMatch = normalizedText.range(of: #"(?i)vitamin\s+c[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[vitCMatch])) {
+            nutritionData.vitaminC = value
+        }
+        
+        // Vitamin E
+        if let vitEMatch = normalizedText.range(of: #"(?i)vitamin\s+e[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[vitEMatch])) {
+            nutritionData.vitaminE = value
+        }
+        
+        // Vitamin K
+        if let vitKMatch = normalizedText.range(of: #"(?i)vitamin\s+k[\s:]+(\d+(?:\.\d+)?)\s*[µu]g"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[vitKMatch])) {
+            nutritionData.vitaminK = value
+        }
+        
+        // Vitamin B6
+        if let vitB6Match = normalizedText.range(of: #"(?i)vitamin\s+b[\s-]?6[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[vitB6Match])) {
+            nutritionData.vitaminB6 = value
+        }
+        
+        // Vitamin B12
+        if let vitB12Match = normalizedText.range(of: #"(?i)vitamin\s+b[\s-]?12[\s:]+(\d+(?:\.\d+)?)\s*[µu]g"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[vitB12Match])) {
+            nutritionData.vitaminB12 = value
+        }
+        
+        // Folate
+        if let folateMatch = normalizedText.range(of: #"(?i)folate[\s:]+(\d+(?:\.\d+)?)\s*[µu]g"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[folateMatch])) {
+            nutritionData.folate = value
+        }
+        
+        // Choline
+        if let cholineMatch = normalizedText.range(of: #"(?i)choline[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[cholineMatch])) {
+            nutritionData.choline = value
+        }
+        
+        // Magnesium
+        if let magnesiumMatch = normalizedText.range(of: #"(?i)magnesium[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[magnesiumMatch])) {
+            nutritionData.magnesium = value
+        }
+        
+        // Zinc
+        if let zincMatch = normalizedText.range(of: #"(?i)zinc[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[zincMatch])) {
+            nutritionData.zinc = value
+        }
+        
+        // Caffeine
+        if let caffeineMatch = normalizedText.range(of: #"(?i)caffeine[\s:]+(\d+(?:\.\d+)?)\s*mg"#, options: .regularExpression),
+           let value = extractNumber(from: String(normalizedText[caffeineMatch])) {
+            nutritionData.caffeine = value
         }
         
         // Only return if we found at least calories
@@ -1156,6 +1514,7 @@ struct PasteTextImportView: View {
         guard let range = text.range(of: pattern, options: .regularExpression) else { return nil }
         return Double(String(text[range]))
     }
+
 }
 
 #Preview {

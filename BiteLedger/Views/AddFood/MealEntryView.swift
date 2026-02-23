@@ -137,6 +137,7 @@ struct MealEntryView: View {
     private func saveMeal() {
         for item in addedItems {
             // Insert FoodItem first to ensure portions are persisted
+            item.foodItem.lastUsed = Date()
             modelContext.insert(item.foodItem)
             try? modelContext.save()
 

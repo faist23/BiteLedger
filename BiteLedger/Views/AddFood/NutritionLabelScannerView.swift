@@ -313,6 +313,11 @@ extension ScannerViewModel: AVCapturePhotoCaptureDelegate {
                 observation.topCandidates(1).first?.string
             }
             
+            print("📸 OCR recognized \(recognizedText.count) lines of text")
+            for (index, line) in recognizedText.prefix(20).enumerated() {
+                print("  Line \(index): \"\(line)\"")
+            }
+            
             // Parse nutrition data
             if let nutritionData = NutritionLabelParser.parse(recognizedText) {
                 Task { @MainActor in

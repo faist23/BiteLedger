@@ -259,9 +259,18 @@ struct Nutriments: Codable {
     let vitaminA100g: FlexibleDouble?
     let vitaminC100g: FlexibleDouble?
     let vitaminD100g: FlexibleDouble?
+    let vitaminE100g: FlexibleDouble?
+    let vitaminK100g: FlexibleDouble?
+    let vitaminB6100g: FlexibleDouble?
+    let vitaminB12100g: FlexibleDouble?
+    let folate100g: FlexibleDouble?
+    let choline100g: FlexibleDouble?
     let calcium100g: FlexibleDouble?
     let iron100g: FlexibleDouble?
     let potassium100g: FlexibleDouble?
+    let magnesium100g: FlexibleDouble?
+    let zinc100g: FlexibleDouble?
+    let caffeine100g: FlexibleDouble?
     
     // Serving values (if available)
     let energyKcalServing: FlexibleDouble?
@@ -291,9 +300,18 @@ struct Nutriments: Codable {
         case vitaminA100g = "vitamin-a_100g"
         case vitaminC100g = "vitamin-c_100g"
         case vitaminD100g = "vitamin-d_100g"
+        case vitaminE100g = "vitamin-e_100g"
+        case vitaminK100g = "vitamin-k_100g"
+        case vitaminB6100g = "vitamin-b6_100g"
+        case vitaminB12100g = "vitamin-b12_100g"
+        case folate100g = "folate_100g"
+        case choline100g = "choline_100g"
         case calcium100g = "calcium_100g"
         case iron100g = "iron_100g"
         case potassium100g = "potassium_100g"
+        case magnesium100g = "magnesium_100g"
+        case zinc100g = "zinc_100g"
+        case caffeine100g = "caffeine_100g"
         case energyKcalServing = "energy-kcal_serving"
         case proteinsServing = "proteins_serving"
         case carbohydratesServing = "carbohydrates_serving"
@@ -328,12 +346,21 @@ struct Nutriments: Codable {
             monounsaturatedFatPer100g: (monounsaturatedFat100g?.value ?? 0) * servingMultiplier,
             polyunsaturatedFatPer100g: (polyunsaturatedFat100g?.value ?? 0) * servingMultiplier,
             cholesterolPer100g: (cholesterol100g?.value ?? 0) * servingMultiplier,
+            magnesiumPer100g: (magnesium100g?.value ?? 0) * servingMultiplier,
+            zincPer100g: (zinc100g?.value ?? 0) * servingMultiplier,
             vitaminAPer100g: (vitaminA100g?.value ?? 0) * servingMultiplier,
             vitaminCPer100g: (vitaminC100g?.value ?? 0) * servingMultiplier,
             vitaminDPer100g: (vitaminD100g?.value ?? 0) * servingMultiplier,
+            vitaminEPer100g: (vitaminE100g?.value ?? 0) * servingMultiplier,
+            vitaminKPer100g: (vitaminK100g?.value ?? 0) * servingMultiplier,
+            vitaminB6Per100g: (vitaminB6100g?.value ?? 0) * servingMultiplier,
+            vitaminB12Per100g: (vitaminB12100g?.value ?? 0) * servingMultiplier,
+            folatePer100g: (folate100g?.value ?? 0) * servingMultiplier,
+            cholinePer100g: (choline100g?.value ?? 0) * servingMultiplier,
             calciumPer100g: (calcium100g?.value ?? 0) * servingMultiplier,
             ironPer100g: (iron100g?.value ?? 0) * servingMultiplier,
-            potassiumPer100g: (potassium100g?.value ?? 0) * servingMultiplier
+            potassiumPer100g: (potassium100g?.value ?? 0) * servingMultiplier,
+            caffeinePer100g: (caffeine100g?.value ?? 0) * servingMultiplier
         )
     }
 }

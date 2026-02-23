@@ -223,10 +223,10 @@ struct FoodLogEditView: View {
                                 NutritionRow(label: "  Sat Fat", value: satFat * nutritionMultiplier, unit: "g", isSubItem: true)
                             }
                             if let cholesterol = foodItem.cholesterolPer100g {
-                                NutritionRow(label: "  Cholesterol", value: cholesterol * nutritionMultiplier, unit: "mg", isSubItem: true)
+                                NutritionRow(label: "  Cholesterol", value: cholesterol * nutritionMultiplier * 1000, unit: "mg", isSubItem: true)
                             }
                             if let sodium = calculatedNutrition.sodiumPer100g {
-                                NutritionRow(label: "Sodium", value: sodium, unit: "mg")
+                                NutritionRow(label: "Sodium", value: sodium * 1000, unit: "mg")
                             }
                             
                             Divider()
@@ -431,9 +431,18 @@ struct NutritionEditorView: View {
     @State private var vitaminA: String
     @State private var vitaminC: String
     @State private var vitaminD: String
+    @State private var vitaminE: String
+    @State private var vitaminK: String
+    @State private var vitaminB6: String
+    @State private var vitaminB12: String
+    @State private var folate: String
+    @State private var choline: String
     @State private var calcium: String
     @State private var iron: String
     @State private var potassium: String
+    @State private var magnesium: String
+    @State private var zinc: String
+    @State private var caffeine: String
     
     init(foodItem: FoodItem, loggedServings: Double? = nil, loggedGrams: Double? = nil, servingDisplayText: String? = nil) {
         self.foodItem = foodItem
@@ -488,9 +497,18 @@ struct NutritionEditorView: View {
         _vitaminA = State(initialValue: String(format: "%.0f", (foodItem.vitaminAPer100g ?? 0) * 1_000_000 * servingMultiplier))
         _vitaminC = State(initialValue: String(format: "%.0f", (foodItem.vitaminCPer100g ?? 0) * 1000 * servingMultiplier))
         _vitaminD = State(initialValue: String(format: "%.0f", (foodItem.vitaminDPer100g ?? 0) * 1_000_000 * servingMultiplier))
+        _vitaminE = State(initialValue: String(format: "%.1f", (foodItem.vitaminEPer100g ?? 0) * 1000 * servingMultiplier))
+        _vitaminK = State(initialValue: String(format: "%.0f", (foodItem.vitaminKPer100g ?? 0) * 1_000_000 * servingMultiplier))
+        _vitaminB6 = State(initialValue: String(format: "%.1f", (foodItem.vitaminB6Per100g ?? 0) * 1000 * servingMultiplier))
+        _vitaminB12 = State(initialValue: String(format: "%.1f", (foodItem.vitaminB12Per100g ?? 0) * 1_000_000 * servingMultiplier))
+        _folate = State(initialValue: String(format: "%.0f", (foodItem.folatePer100g ?? 0) * 1_000_000 * servingMultiplier))
+        _choline = State(initialValue: String(format: "%.1f", (foodItem.cholinePer100g ?? 0) * 1000 * servingMultiplier))
         _calcium = State(initialValue: String(format: "%.0f", (foodItem.calciumPer100g ?? 0) * 1000 * servingMultiplier))
         _iron = State(initialValue: String(format: "%.1f", (foodItem.ironPer100g ?? 0) * 1000 * servingMultiplier))
         _potassium = State(initialValue: String(format: "%.0f", (foodItem.potassiumPer100g ?? 0) * 1000 * servingMultiplier))
+        _magnesium = State(initialValue: String(format: "%.0f", (foodItem.magnesiumPer100g ?? 0) * 1000 * servingMultiplier))
+        _zinc = State(initialValue: String(format: "%.1f", (foodItem.zincPer100g ?? 0) * 1000 * servingMultiplier))
+        _caffeine = State(initialValue: String(format: "%.0f", (foodItem.caffeinePer100g ?? 0) * 1000 * servingMultiplier))
     }
     
     var body: some View {
@@ -627,9 +645,18 @@ private extension NutritionEditorView {
             labelRow("Vitamin A", $vitaminA, "μg")
             labelRow("Vitamin C", $vitaminC, "mg")
             labelRow("Vitamin D", $vitaminD, "μg")
+            labelRow("Vitamin E", $vitaminE, "mg")
+            labelRow("Vitamin K", $vitaminK, "μg")
+            labelRow("Vitamin B6", $vitaminB6, "mg")
+            labelRow("Vitamin B12", $vitaminB12, "μg")
+            labelRow("Folate", $folate, "μg")
+            labelRow("Choline", $choline, "mg")
             labelRow("Calcium", $calcium, "mg")
             labelRow("Iron", $iron, "mg")
             labelRow("Potassium", $potassium, "mg")
+            labelRow("Magnesium", $magnesium, "mg")
+            labelRow("Zinc", $zinc, "mg")
+            labelRow("Caffeine", $caffeine, "mg")
         }
     }
     
@@ -680,9 +707,18 @@ private extension NutritionEditorView {
         foodItem.vitaminAPer100g = ((Double(vitaminA) ?? 0) / 1_000_000) / divisor
         foodItem.vitaminCPer100g = ((Double(vitaminC) ?? 0) / 1000) / divisor
         foodItem.vitaminDPer100g = ((Double(vitaminD) ?? 0) / 1_000_000) / divisor
+        foodItem.vitaminEPer100g = ((Double(vitaminE) ?? 0) / 1000) / divisor
+        foodItem.vitaminKPer100g = ((Double(vitaminK) ?? 0) / 1_000_000) / divisor
+        foodItem.vitaminB6Per100g = ((Double(vitaminB6) ?? 0) / 1000) / divisor
+        foodItem.vitaminB12Per100g = ((Double(vitaminB12) ?? 0) / 1_000_000) / divisor
+        foodItem.folatePer100g = ((Double(folate) ?? 0) / 1_000_000) / divisor
+        foodItem.cholinePer100g = ((Double(choline) ?? 0) / 1000) / divisor
         foodItem.calciumPer100g = ((Double(calcium) ?? 0) / 1000) / divisor
         foodItem.ironPer100g = ((Double(iron) ?? 0) / 1000) / divisor
         foodItem.potassiumPer100g = ((Double(potassium) ?? 0) / 1000) / divisor
+        foodItem.magnesiumPer100g = ((Double(magnesium) ?? 0) / 1000) / divisor
+        foodItem.zincPer100g = ((Double(zinc) ?? 0) / 1000) / divisor
+        foodItem.caffeinePer100g = ((Double(caffeine) ?? 0) / 1000) / divisor
         
         dismiss()
     }

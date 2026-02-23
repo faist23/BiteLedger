@@ -18,45 +18,84 @@ struct SettingsView: View {
     @State private var showingImport = false
     @State private var showingExport = false
     @State private var showingDeleteConfirmation = false
-    @State private var showDailyGoal = false
-    @State private var dailyCalorieGoal: Double = 2000
-    @State private var trackingMetric: TrackingMetric = .calories
+    @State private var pinnedNutrient: Nutrient?
+    @State private var trackedGoalNutrient: Nutrient?
+    @State private var goals: [String: NutrientGoal] = [:]
+    @State private var showingGoalEditor = false
+    @State private var editingNutrient: Nutrient?
     
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    Picker("Tracking Metric", selection: $trackingMetric) {
-                        ForEach(TrackingMetric.allCases, id: \.self) { metric in
-                            Text(metric.rawValue).tag(metric)
+                    Picker("Pin Nutrient to Dashboard", selection: $pinnedNutrient) {
+                        Text("None").tag(nil as Nutrient?)
+                        ForEach(Nutrient.pinnableNutrients) { nutrient in
+                            Text(nutrient.rawValue).tag(nutrient as Nutrient?)
                         }
                     }
-                    .onChange(of: trackingMetric) { _, newValue in
+                    .onChange(of: pinnedNutrient) { _, _ in
+                        updatePreferences()
+                    }
+                } header: {
+                    Text("Dashboard")
+                } footer: {
+                    Text("Choose an additional nutrient to display on the dashboard (5th tile). Calories, Protein, Carbs, and Fat are always shown.")
+                }
+                
+                Section {
+                    Picker("Track Goal For", selection: $trackedGoalNutrient) {
+                        Text("None").tag(nil as Nutrient?)
+                        ForEach(Nutrient.allCases) { nutrient in
+                            Text(nutrient.rawValue).tag(nutrient as Nutrient?)
+                        }
+                    }
+                    .onChange(of: trackedGoalNutrient) { _, _ in
                         updatePreferences()
                     }
                     
-                    Toggle("Show Daily Goal", isOn: $showDailyGoal)
-                        .onChange(of: showDailyGoal) { _, newValue in
-                            updatePreferences()
-                        }
-                    
-                    if showDailyGoal {
-                        HStack {
-                            Text("Daily Calorie Goal")
-                            Spacer()
-                            TextField("Goal", value: $dailyCalorieGoal, format: .number)
-                                .keyboardType(.numberPad)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 100)
-                                .onChange(of: dailyCalorieGoal) { _, newValue in
-                                    updatePreferences()
+                    if let tracked = trackedGoalNutrient {
+                        if let goal = goals[tracked.rawValue] {
+                            NavigationLink {
+                                GoalEditorView(
+                                    nutrient: tracked,
+                                    goal: goal,
+                                    onSave: { newGoal in
+                                        goals[tracked.rawValue] = newGoal
+                                        updatePreferences()
+                                    },
+                                    onDelete: {
+                                        goals.removeValue(forKey: tracked.rawValue)
+                                        if trackedGoalNutrient?.rawValue == tracked.rawValue {
+                                            trackedGoalNutrient = nil
+                                        }
+                                        updatePreferences()
+                                    }
+                                )
+                            } label: {
+                                HStack {
+                                    Text("\(tracked.rawValue) Goal")
+                                    Spacer()
+                                    Text("\(Int(goal.targetValue)) \(tracked.unit)")
+                                        .foregroundStyle(Color("TextSecondary"))
                                 }
+                            }
+                        } else {
+                            Button("Set \(tracked.rawValue) Goal") {
+                                let defaultGoal = NutrientGoal(
+                                    targetValue: defaultGoalValue(for: tracked),
+                                    goalType: tracked.defaultGoalType,
+                                    rangeMax: nil
+                                )
+                                goals[tracked.rawValue] = defaultGoal
+                                updatePreferences()
+                            }
                         }
                     }
                 } header: {
-                    Text("Tracking")
+                    Text("Goals")
                 } footer: {
-                    Text("Choose which metric to track on the home screen. Enable daily goal to show a progress bar.")
+                    Text("Set a goal for one nutrient to show a progress bar on the dashboard.")
                 }
                 
                 Section {
@@ -124,9 +163,9 @@ struct SettingsView: View {
     
     private func loadPreferences() {
         if let prefs = preferences.first {
-            showDailyGoal = prefs.showDailyGoal
-            dailyCalorieGoal = prefs.dailyCalorieGoal ?? 2000
-            trackingMetric = prefs.trackingMetric
+            pinnedNutrient = prefs.pinnedNutrient.flatMap { Nutrient(rawValue: $0) }
+            trackedGoalNutrient = prefs.trackedGoalNutrient.flatMap { Nutrient(rawValue: $0) }
+            goals = prefs.goals
         } else {
             // Create default preferences
             let newPrefs = UserPreferences()
@@ -137,18 +176,39 @@ struct SettingsView: View {
     
     private func updatePreferences() {
         if let prefs = preferences.first {
-            prefs.showDailyGoal = showDailyGoal
-            prefs.dailyCalorieGoal = dailyCalorieGoal
-            prefs.trackingMetric = trackingMetric
+            prefs.pinnedNutrient = pinnedNutrient?.rawValue
+            prefs.trackedGoalNutrient = trackedGoalNutrient?.rawValue
+            prefs.goals = goals
             try? modelContext.save()
         } else {
             let newPrefs = UserPreferences(
-                dailyCalorieGoal: dailyCalorieGoal,
-                trackingMetric: trackingMetric,
-                showDailyGoal: showDailyGoal
+                pinnedNutrient: pinnedNutrient?.rawValue,
+                trackedGoalNutrient: trackedGoalNutrient?.rawValue
             )
+            newPrefs.goals = goals
             modelContext.insert(newPrefs)
             try? modelContext.save()
+        }
+    }
+    
+    private func defaultGoalValue(for nutrient: Nutrient) -> Double {
+        switch nutrient {
+        case .calories: return 2000
+        case .protein: return 150
+        case .carbs: return 250
+        case .fat: return 65
+        case .fiber: return 30
+        case .sugar: return 50
+        case .sodium: return 2300
+        case .saturatedFat: return 20
+        case .cholesterol: return 300
+        case .potassium: return 3500
+        case .calcium: return 1000
+        case .iron: return 18
+        case .vitaminC: return 90
+        case .vitaminD: return 20
+        case .caffeine: return 400
+        default: return 100
         }
     }
     

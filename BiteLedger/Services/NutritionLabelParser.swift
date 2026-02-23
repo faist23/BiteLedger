@@ -20,6 +20,19 @@ struct NutritionData {
     var calcium: Double?
     var iron: Double?
     var potassium: Double?
+    var vitaminA: Double?
+    var vitaminC: Double?
+    var vitaminE: Double?
+    var vitaminK: Double?
+    var vitaminB6: Double?
+    var vitaminB12: Double?
+    var folate: Double?
+    var choline: Double?
+    var magnesium: Double?
+    var zinc: Double?
+    var caffeine: Double?
+    var monounsaturatedFat: Double?
+    var polyunsaturatedFat: Double?
 }
 
 /// Parser for extracting nutrition information from OCR text
@@ -43,6 +56,13 @@ struct NutritionLabelParser {
         guard fullText.contains("nutrition") || fullText.contains("calories") else {
             print("❌ Doesn't appear to be a nutrition label")
             return nil
+        }
+        
+        // Try to find nutrient-value pairs across non-adjacent lines
+        // This handles table layouts where labels and values are in different columns
+        if let result = parseTableFormat(lines) {
+            print("✅ Successfully parsed table format")
+            return result
         }
         
         // Try to find calories in the full text first (handles multi-line cases)
@@ -82,23 +102,24 @@ struct NutritionLabelParser {
             // Skip calorie extraction from individual lines since we already did it from full text
             // (This prevents false positives from line-by-line parsing)
             
-            // Total Fat
-            if let fat = extractNutrient(from: line, patterns: ["total fat", "fat"]) {
-                data.totalFat = fat
-                foundAnyData = true
-                print("✅ Found total fat: \(fat)g")
-            }
-            
-            // Saturated Fat
+            // Check specific fat types BEFORE general "total fat" to prevent mismatches
+            // Saturated Fat (check first)
             if let satFat = extractNutrient(from: line, patterns: ["saturated fat", "sat. fat", "sat fat"]) {
                 data.saturatedFat = satFat
                 foundAnyData = true
+                print("✅ Found saturated fat: \(satFat)g")
             }
-            
-            // Trans Fat
-            if let transFat = extractNutrient(from: line, patterns: ["trans fat"]) {
+            // Trans Fat (check second)
+            else if let transFat = extractNutrient(from: line, patterns: ["trans fat"]) {
                 data.transFat = transFat
                 foundAnyData = true
+                print("✅ Found trans fat: \(transFat)g")
+            }
+            // Total Fat (check last, only if not saturated or trans)
+            else if let fat = extractNutrient(from: line, patterns: ["total fat"]) {
+                data.totalFat = fat
+                foundAnyData = true
+                print("✅ Found total fat: \(fat)g")
             }
             
             // Cholesterol
@@ -127,15 +148,15 @@ struct NutritionLabelParser {
                 foundAnyData = true
             }
             
-            // Total Sugars
-            if let sugars = extractNutrient(from: line, patterns: ["total sugars", "sugars"]) {
-                data.sugars = sugars
+            // Check "Added Sugars" BEFORE "Total Sugars" to prevent mismatches
+            // Added Sugars (check first)
+            if let addedSugars = extractNutrient(from: line, patterns: ["added sugars", "incl. added sugars", "includes"]) {
+                data.addedSugars = addedSugars
                 foundAnyData = true
             }
-            
-            // Added Sugars
-            if let addedSugars = extractNutrient(from: line, patterns: ["added sugars", "incl. added sugars"]) {
-                data.addedSugars = addedSugars
+            // Total Sugars (check second, only if not added sugars)
+            else if let sugars = extractNutrient(from: line, patterns: ["total sugars"]) {
+                data.sugars = sugars
                 foundAnyData = true
             }
             
@@ -167,6 +188,84 @@ struct NutritionLabelParser {
             // Potassium
             if let potassium = extractNutrient(from: line, patterns: ["potassium"]) {
                 data.potassium = potassium
+                foundAnyData = true
+            }
+            
+            // Vitamin A
+            if let vitaminA = extractNutrient(from: line, patterns: ["vitamin a"]) {
+                data.vitaminA = vitaminA
+                foundAnyData = true
+            }
+            
+            // Vitamin C
+            if let vitaminC = extractNutrient(from: line, patterns: ["vitamin c"]) {
+                data.vitaminC = vitaminC
+                foundAnyData = true
+            }
+            
+            // Vitamin E
+            if let vitaminE = extractNutrient(from: line, patterns: ["vitamin e"]) {
+                data.vitaminE = vitaminE
+                foundAnyData = true
+            }
+            
+            // Vitamin K
+            if let vitaminK = extractNutrient(from: line, patterns: ["vitamin k"]) {
+                data.vitaminK = vitaminK
+                foundAnyData = true
+            }
+            
+            // Vitamin B6
+            if let vitaminB6 = extractNutrient(from: line, patterns: ["vitamin b6", "vitamin b-6", "pyridoxine"]) {
+                data.vitaminB6 = vitaminB6
+                foundAnyData = true
+            }
+            
+            // Vitamin B12
+            if let vitaminB12 = extractNutrient(from: line, patterns: ["vitamin b12", "vitamin b-12", "cobalamin"]) {
+                data.vitaminB12 = vitaminB12
+                foundAnyData = true
+            }
+            
+            // Folate
+            if let folate = extractNutrient(from: line, patterns: ["folate", "folic acid"]) {
+                data.folate = folate
+                foundAnyData = true
+            }
+            
+            // Choline
+            if let choline = extractNutrient(from: line, patterns: ["choline"]) {
+                data.choline = choline
+                foundAnyData = true
+            }
+            
+            // Magnesium
+            if let magnesium = extractNutrient(from: line, patterns: ["magnesium"]) {
+                data.magnesium = magnesium
+                foundAnyData = true
+            }
+            
+            // Zinc
+            if let zinc = extractNutrient(from: line, patterns: ["zinc"]) {
+                data.zinc = zinc
+                foundAnyData = true
+            }
+            
+            // Caffeine
+            if let caffeine = extractNutrient(from: line, patterns: ["caffeine"]) {
+                data.caffeine = caffeine
+                foundAnyData = true
+            }
+            
+            // Monounsaturated Fat
+            if let monoFat = extractNutrient(from: line, patterns: ["monounsaturated fat", "monounsaturated", "mono fat"]) {
+                data.monounsaturatedFat = monoFat
+                foundAnyData = true
+            }
+            
+            // Polyunsaturated Fat
+            if let polyFat = extractNutrient(from: line, patterns: ["polyunsaturated fat", "polyunsaturated", "poly fat"]) {
+                data.polyunsaturatedFat = polyFat
                 foundAnyData = true
             }
         }
@@ -271,47 +370,37 @@ struct NutritionLabelParser {
                 let isNearAmountPerServing = (index > 0 && lines[index - 1].lowercased().contains("amount per serving")) ||
                                              (index > 1 && lines[index - 2].lowercased().contains("amount per serving"))
                 
-                // If this is just "Calories" on its own line (FDA format), check next line
+                // If this is just "Calories" on its own line (FDA format), check next few lines
                 if cleaned == "calories" || cleaned == "calorie" {
-                    if index + 1 < lines.count {
-                        let nextLine = lines[index + 1]
-                        print("📍 Checking next line for standalone 'Calories': \"\(nextLine)\"")
+                    // Search within next 25 lines for a standalone number (calorie value)
+                    for offset in 1...min(25, lines.count - index - 1) {
+                        let checkLine = lines[index + offset]
                         
-                        // Check if next line is just a number
-                        if let numberMatch = nextLine.range(of: #"^\s*\d+\s*$"#, options: .regularExpression) {
-                            let numberStr = String(nextLine[numberMatch]).trimmingCharacters(in: .whitespaces)
+                        // Check if this line is just a number (calorie value)
+                        if let numberMatch = checkLine.range(of: #"^\s*\d+\s*$"#, options: .regularExpression) {
+                            let numberStr = String(checkLine[numberMatch]).trimmingCharacters(in: .whitespaces)
                             if let value = Double(numberStr), value > 0 && value < 1000 {
-                                print("✅ Found calories on next line (FDA format): \(value)")
+                                print("✅ Found calories \(offset) line(s) after 'Calories' keyword: \(value)")
                                 return value
                             }
                         }
-                        
-                        // Special case: If next line is "Total Fat" or "% Daily Value",
-                        // the calorie number was likely missed by OCR
-                        // Check if we can find it in nearby marketing text
-                        if nextLine.lowercased().contains("total fat") || 
-                           nextLine.lowercased().contains("daily value") ||
-                           nextLine.lowercased().contains("% daily") {
-                            print("⚠️ Calorie number appears to be missing between 'Calories' and '\(nextLine)'")
-                            print("⚠️ Will try to find it in surrounding text...")
-                            
-                            // Look backwards in earlier lines for calorie references
-                            for backIndex in stride(from: index - 1, through: max(0, index - 10), by: -1) {
-                                let backLine = lines[backIndex].lowercased()
-                                if backLine.contains("calorie") && backLine.contains("per") {
-                                    print("📍 Found potential calorie reference: '\(lines[backIndex])'")
-                                    // Extract number from patterns like "5 calories per serving"
-                                    // Extract all numbers from the line
-                                    let allMatches = lines[backIndex].matches(of: /\d+/)
-                                    let numbers = allMatches.map { Int($0.output) ?? 0 }
-                                    if let firstValid = numbers.first(where: { $0 > 0 && $0 < 1000 }) {
-                                        print("✅ Found calories from reference text: \(firstValid)")
-                                        return Double(firstValid)
-                                    }
-                                }
+                    }
+                    
+                    // If we didn't find it in the forward search, try looking backward
+                    print("⚠️ Calorie number not found in forward search, trying backward...")
+                    for backIndex in stride(from: index - 1, through: max(0, index - 10), by: -1) {
+                        let backLine = lines[backIndex].lowercased()
+                        if backLine.contains("calorie") && backLine.contains("per") {
+                            print("📍 Found potential calorie reference: '\(lines[backIndex])'")
+                            let allMatches = lines[backIndex].matches(of: /\d+/)
+                            let numbers = allMatches.map { Int($0.output) ?? 0 }
+                            if let firstValid = numbers.first(where: { $0 > 0 && $0 < 1000 }) {
+                                print("✅ Found calories from reference text: \(firstValid)")
+                                return Double(firstValid)
                             }
                         }
                     }
+                    
                     continue
                 }
                 
@@ -439,5 +528,394 @@ struct NutritionLabelParser {
         }
         
         return nil
+    }
+    
+    /// Parse table format using proximity matching - finds closest value after each nutrient label
+    private static func parseTableFormatProximity(lines: [String], nutrientIndices: [String: Int]) -> NutritionData? {
+        var data = NutritionData()
+        var foundAnyData = false
+        
+        // Build a map of all value lines
+        var valueMap: [Int: (value: Double, unit: String)] = [:]
+        for (index, line) in lines.enumerated() {
+            let cleaned = line.trimmingCharacters(in: .whitespaces)
+            if let match = cleaned.range(of: #"^(\d+(?:\.\d+)?)\s*(g|mg|mcg|µg|ug)?$"#, options: .regularExpression) {
+                let matchText = String(cleaned[match])
+                if let numMatch = matchText.range(of: #"\d+(?:\.\d+)?"#, options: .regularExpression),
+                   let value = Double(String(matchText[numMatch])) {
+                    let unit = matchText.replacingOccurrences(of: #"\d+(?:\.\d+)?"#, with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespaces).lowercased()
+                    valueMap[index] = (value: value, unit: unit)
+                }
+            }
+        }
+        
+        print("🔍 Proximity matching: found \(valueMap.count) value lines")
+        
+        // For each nutrient, find the closest value after it (within 40 lines for fragmented OCR)
+        var usedValueIndices = Set<Int>()
+        var matchedCount = 0
+        
+        for (nutrient, labelIndex) in nutrientIndices.sorted(by: { $0.value < $1.value }) {
+            // Find unused value closest to this nutrient label
+            // For calories, allow unitless values; for others, prefer values with units
+            let candidateValues = valueMap.filter { valueIndex, valueInfo in
+                valueIndex > labelIndex && 
+                valueIndex - labelIndex <= 40 &&
+                !usedValueIndices.contains(valueIndex)
+            }.sorted { $0.key < $1.key }
+            
+            // For non-calorie nutrients, prefer values with appropriate units
+            var filteredCandidates = candidateValues
+            if nutrient != "calories" {
+                // Prefer values with units for non-calorie nutrients
+                let withUnits = candidateValues.filter { !$0.value.unit.isEmpty }
+                if !withUnits.isEmpty {
+                    filteredCandidates = withUnits
+                }
+            }
+            
+            guard let (valueIndex, valueData) = filteredCandidates.first else {
+                print("⚠️ No value found for \(nutrient) at line \(labelIndex)")
+                continue
+            }
+            
+            usedValueIndices.insert(valueIndex)
+            
+            switch nutrient {
+            case "calories":
+                data.calories = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Calories (\(labelIndex)): \(valueData.value) at line \(valueIndex)")
+                
+            case "totalFat":
+                data.totalFat = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Total Fat (\(labelIndex)): \(valueData.value)\(valueData.unit) at line \(valueIndex)")
+                
+            case "saturatedFat":
+                data.saturatedFat = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Saturated Fat (\(labelIndex)): \(valueData.value)\(valueData.unit) at line \(valueIndex)")
+                
+            case "transFat":
+                data.transFat = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Trans Fat (\(labelIndex)): \(valueData.value)\(valueData.unit) at line \(valueIndex)")
+                
+            case "cholesterol":
+                data.cholesterol = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Cholesterol (\(labelIndex)): \(valueData.value)\(valueData.unit) at line \(valueIndex)")
+                
+            case "sodium":
+                data.sodium = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Sodium (\(labelIndex)): \(valueData.value)\(valueData.unit) at line \(valueIndex)")
+                
+            case "totalCarbs":
+                data.totalCarbs = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Total Carbs (\(labelIndex)): \(valueData.value)\(valueData.unit) at line \(valueIndex)")
+                
+            case "fiber":
+                data.fiber = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Fiber (\(labelIndex)): \(valueData.value)\(valueData.unit) at line \(valueIndex)")
+                
+            case "totalSugars":
+                data.sugars = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Total Sugars (\(labelIndex)): \(valueData.value)\(valueData.unit) at line \(valueIndex)")
+                
+            case "protein":
+                data.protein = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Protein (\(labelIndex)): \(valueData.value)\(valueData.unit) at line \(valueIndex)")
+                
+            case "vitaminD":
+                data.vitaminD = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Vitamin D (\(labelIndex)): \(valueData.value)\(valueData.unit) at line \(valueIndex)")
+                
+            case "calcium":
+                data.calcium = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Calcium (\(labelIndex)): \(valueData.value)\(valueData.unit) at line \(valueIndex)")
+                
+            case "iron":
+                data.iron = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Iron (\(labelIndex)): \(valueData.value)\(valueData.unit) at line \(valueIndex)")
+                
+            case "potassium":
+                data.potassium = valueData.value
+                foundAnyData = true
+                matchedCount += 1
+                print("✅ Matched Potassium (\(labelIndex)): \(valueData.value)\(valueData.unit) at line \(valueIndex)")
+                
+            default:
+                break
+            }
+        }
+        
+        // Only use proximity matching if we found a substantial number of nutrients
+        // Otherwise fall back to sequence-based matching
+        if matchedCount >= 8 {
+            print("✅ Proximity matching succeeded with \(matchedCount) nutrients")
+            return foundAnyData ? data : nil
+        } else {
+            print("⚠️ Proximity matching found only \(matchedCount) nutrients, falling back to sequence matching")
+            return nil
+        }
+    }
+    
+    /// Parse table-format nutrition labels where labels and values are in separate columns
+    private static func parseTableFormat(_ lines: [String]) -> NutritionData? {
+        var data = NutritionData()
+        var foundAnyData = false
+        
+        // Find all nutrient labels and their indices
+        var nutrientIndices: [String: Int] = [:]
+        for (index, line) in lines.enumerated() {
+            let cleaned = line.lowercased().trimmingCharacters(in: .whitespaces)
+            
+            if cleaned == "calories" { nutrientIndices["calories"] = index }
+            if cleaned.contains("total fat") || cleaned == "total fat" { nutrientIndices["totalFat"] = index }
+            if cleaned.contains("saturated fat") || cleaned == "saturated fat" { nutrientIndices["saturatedFat"] = index }
+            if cleaned.contains("trans fat") || cleaned == "trans fat" { nutrientIndices["transFat"] = index }
+            if cleaned == "cholesterol" { nutrientIndices["cholesterol"] = index }
+            if cleaned == "sodium" { nutrientIndices["sodium"] = index }
+            if cleaned.contains("total carbohydrate") || cleaned == "total carbohydrate" { nutrientIndices["totalCarbs"] = index }
+            if cleaned.contains("dietary fiber") || cleaned == "dietary fiber" { nutrientIndices["fiber"] = index }
+            
+            // For "total sugars", check if standalone "sugars" is part of "Added Sugars" sub-label
+            if cleaned.contains("total sugars") || cleaned == "total sugars" {
+                nutrientIndices["totalSugars"] = index
+            } else if cleaned == "sugars" {
+                // Check if previous line contains "added" or "incl" - if so, skip this as it's part of "Added Sugars"
+                if index > 0 {
+                    let prevLine = lines[index - 1].lowercased()
+                    if prevLine.contains("added") || prevLine.contains("incl") {
+                        // Skip - this is part of "Added Sugars" sub-label, not a standalone nutrient
+                        print("⏭️ Skipping 'Sugars' at line \(index) - part of 'Added Sugars' compound label")
+                        continue
+                    }
+                }
+                // If not preceded by "added"/"incl", treat as Total Sugars
+                nutrientIndices["totalSugars"] = index
+            }
+            
+            if cleaned == "protein" { nutrientIndices["protein"] = index }
+            if cleaned.contains("vitamin d") || cleaned == "vitamin d" { nutrientIndices["vitaminD"] = index }
+            if cleaned == "calcium" { nutrientIndices["calcium"] = index }
+            if cleaned == "iron" { nutrientIndices["iron"] = index }
+            if cleaned == "potassium" { nutrientIndices["potassium"] = index }
+        }
+        
+        print("📊 Found \(nutrientIndices.count) nutrient labels")
+        
+        // Find all lines with numbers (potential values)
+        var valueLines: [(index: Int, value: Double, unit: String)] = []
+        for (index, line) in lines.enumerated() {
+            let cleaned = line.trimmingCharacters(in: .whitespaces)
+            
+            // Match patterns like "190", "8g", "560mg", "0ug" etc
+            if let match = cleaned.range(of: #"^(\d+(?:\.\d+)?)\s*(g|mg|mcg|µg|ug)?$"#, options: .regularExpression) {
+                let matchText = String(cleaned[match])
+                if let numMatch = matchText.range(of: #"\d+(?:\.\d+)?"#, options: .regularExpression),
+                   let value = Double(String(matchText[numMatch])) {
+                    let unit = matchText.replacingOccurrences(of: #"\d+(?:\.\d+)?"#, with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespaces).lowercased()
+                    valueLines.append((index: index, value: value, unit: unit))
+                }
+            }
+        }
+        
+        print("📊 Found \(nutrientIndices.count) nutrient labels and \(valueLines.count) value lines")
+        
+        // Sort nutrients by their line index to maintain order
+        let sortedNutrients = nutrientIndices.sorted { $0.value < $1.value }
+        
+        guard !sortedNutrients.isEmpty else {
+            print("❌ No nutrients found")
+            return nil
+        }
+        
+        // Find all potential value columns after the last nutrient label
+        let lastNutrientIndex = sortedNutrients.last?.value ?? 0
+        let potentialValues = valueLines.filter { $0.index > lastNutrientIndex }.sorted { $0.index < $1.index }
+        
+        guard !potentialValues.isEmpty else {
+            print("❌ Could not find value section")
+            return nil
+        }
+        
+        // When there are multiple value columns (e.g., "As Packaged" and "100g"),
+        // we need to extract just ONE column. Strategy:
+        // 1. Find sequences where consecutive values are close together (within 2-3 lines)
+        // 2. Prefer the sequence that starts with a unitless number (calories)
+        
+        var orderedValues: [(index: Int, value: Double, unit: String)] = []
+        let targetCount = sortedNutrients.count
+        
+        // Build sequences of closely-spaced values (likely same column)
+        var sequences: [[(index: Int, value: Double, unit: String)]] = []
+        var currentSequence: [(index: Int, value: Double, unit: String)] = []
+        
+        for (idx, value) in potentialValues.enumerated() {
+            if currentSequence.isEmpty {
+                currentSequence.append(value)
+            } else {
+                let gap = value.index - currentSequence.last!.index
+                // Allow slightly larger gaps for "% DV" headers or spacing issues
+                if gap <= 2 {
+                    // Same column
+                    currentSequence.append(value)
+                } else if gap <= 4 && currentSequence.count < 5 {
+                    // For small sequences, be more lenient (might just be starting)
+                    currentSequence.append(value)
+                } else {
+                    // Gap indicates different column, save current and start new
+                    if currentSequence.count >= 5 {  // Only keep substantial sequences
+                        sequences.append(currentSequence)
+                    }
+                    currentSequence = [value]
+                }
+            }
+        }
+        
+        // Don't forget the last sequence
+        if currentSequence.count >= 5 {
+            sequences.append(currentSequence)
+        }
+        
+        print("📊 Found \(sequences.count) potential value columns")
+        for (idx, seq) in sequences.enumerated() {
+            print("  Column \(idx): \(seq.count) values starting at line \(seq.first?.index ?? 0), first value: \(seq.first?.value ?? 0)\(seq.first?.unit ?? "")")
+        }
+        
+        // Strategy for picking the right column:
+        // 1. Look for the longest sequence (likely the main nutrient values)
+        // 2. Check if there's a unitless value (calories) within 5 lines before it
+        // 3. If so, prepend calories to the sequence
+        
+        guard let longestSequence = sequences.max(by: { $0.count < $1.count }) else {
+            print("❌ Could not identify value column")
+            return nil
+        }
+        
+        let sequenceStart = longestSequence.first?.index ?? 0
+        
+        // Look for a unitless value (calories) within 5 lines before the main sequence
+        if let caloriesValue = potentialValues.first(where: { val in
+            val.unit.isEmpty && val.index < sequenceStart && (sequenceStart - val.index) <= 5
+        }) {
+            // Found calories value before main sequence - combine them
+            orderedValues = [caloriesValue] + longestSequence
+            print("✅ Found calories at line \(caloriesValue.index), main values at \(sequenceStart), total \(orderedValues.count) values")
+        } else if longestSequence.first?.unit.isEmpty == true {
+            // Sequence already starts with unitless value
+            orderedValues = longestSequence
+            print("✅ Using sequence starting with unitless value, \(orderedValues.count) values")
+        } else {
+            // Use longest sequence as-is
+            orderedValues = longestSequence
+            print("⚠️ Using longest sequence without calories prepend, \(orderedValues.count) values")
+        }
+        
+        // Trim to target count
+        orderedValues = Array(orderedValues.prefix(targetCount))
+        
+        print("📍 Using values starting at line \(orderedValues.first?.index ?? 0)")
+        
+        // Match nutrients to values based on their position in the sequence
+        for (index, (nutrient, labelIndex)) in sortedNutrients.enumerated() {
+            guard index < orderedValues.count else {
+                print("⚠️ Not enough values for nutrient \(nutrient)")
+                continue
+            }
+            let valueLine = orderedValues[index]
+                switch nutrient {
+                case "calories":
+                    data.calories = valueLine.value
+                    foundAnyData = true
+                    print("✅ Matched Calories: \(valueLine.value)")
+                    
+                case "totalFat":
+                    data.totalFat = valueLine.value
+                    foundAnyData = true
+                    print("✅ Matched Total Fat: \(valueLine.value)g")
+                    
+                case "saturatedFat":
+                    data.saturatedFat = valueLine.value
+                    foundAnyData = true
+                    
+                case "transFat":
+                    data.transFat = valueLine.value
+                    foundAnyData = true
+                    
+                case "cholesterol":
+                    data.cholesterol = valueLine.value
+                    foundAnyData = true
+                    
+                case "sodium":
+                    data.sodium = valueLine.value
+                    foundAnyData = true
+                    print("✅ Matched Sodium: \(valueLine.value)mg")
+                    
+                case "totalCarbs":
+                    data.totalCarbs = valueLine.value
+                    foundAnyData = true
+                    
+                case "fiber":
+                    data.fiber = valueLine.value
+                    foundAnyData = true
+                    
+                case "totalSugars":
+                    data.sugars = valueLine.value
+                    foundAnyData = true
+                    
+                case "protein":
+                    data.protein = valueLine.value
+                    foundAnyData = true
+                    
+                case "vitaminD":
+                    data.vitaminD = valueLine.value
+                    foundAnyData = true
+                    
+                case "calcium":
+                    data.calcium = valueLine.value
+                    foundAnyData = true
+                    print("✅ Matched Calcium: \(valueLine.value)mg")
+                    
+                case "iron":
+                    data.iron = valueLine.value
+                    foundAnyData = true
+                    print("✅ Matched Iron: \(valueLine.value)mg")
+                    
+                case "potassium":
+                    data.potassium = valueLine.value
+                    foundAnyData = true
+                    
+                default:
+                    break
+                }
+        }
+        
+        return foundAnyData ? data : nil
     }
 }

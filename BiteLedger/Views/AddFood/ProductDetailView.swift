@@ -241,6 +241,7 @@ struct ProductDetailView: View {
             servingSize: servingSizeGrams,
             servingSizeUnit: selectedUnit.abbreviation
         )
+        foodItem.lastUsed = Date()
         
         let foodLog = FoodLog(
             foodItem: foodItem,
@@ -317,9 +318,18 @@ struct NutritionRow: View {
             vitaminA100g: nil,
             vitaminC100g: nil,
             vitaminD100g: nil,
+            vitaminE100g: nil,
+            vitaminK100g: nil,
+            vitaminB6100g: nil,
+            vitaminB12100g: nil,
+            folate100g: nil,
+            choline100g: nil,
             calcium100g: nil,
             iron100g: nil,
             potassium100g: nil,
+            magnesium100g: nil,
+            zinc100g: nil,
+            caffeine100g: nil,
             energyKcalServing: FlexibleDouble(175),
             proteinsServing: FlexibleDouble(6),
             carbohydratesServing: FlexibleDouble(30),

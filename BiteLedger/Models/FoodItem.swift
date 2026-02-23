@@ -32,13 +32,28 @@ final class FoodItem {
     var polyunsaturatedFatPer100g: Double?
     var cholesterolPer100g: Double?
     
-    // Vitamins and minerals
+    // Additional minerals
+    var magnesiumPer100g: Double?
+    var zincPer100g: Double?
+    
+    // Vitamins
     var vitaminAPer100g: Double?
     var vitaminCPer100g: Double?
     var vitaminDPer100g: Double?
+    var vitaminEPer100g: Double?
+    var vitaminKPer100g: Double?
+    var vitaminB6Per100g: Double?
+    var vitaminB12Per100g: Double?
+    var folatePer100g: Double?
+    var cholinePer100g: Double?
+    
+    // Minerals
     var calciumPer100g: Double?
     var ironPer100g: Double?
     var potassiumPer100g: Double?
+    
+    // Special tracking
+    var caffeinePer100g: Double?
     
     // Serving size information
     var servingDescription: String  // "1 cup" or "100g"
@@ -53,6 +68,7 @@ final class FoodItem {
     
     // Metadata
     var dateAdded: Date
+    var lastUsed: Date?
     var source: String  // "OpenFoodFacts", "USDA", "Manual"
     var imageURL: String?
     
@@ -72,12 +88,21 @@ final class FoodItem {
         monounsaturatedFatPer100g: Double? = nil,
         polyunsaturatedFatPer100g: Double? = nil,
         cholesterolPer100g: Double? = nil,
+        magnesiumPer100g: Double? = nil,
+        zincPer100g: Double? = nil,
         vitaminAPer100g: Double? = nil,
         vitaminCPer100g: Double? = nil,
         vitaminDPer100g: Double? = nil,
+        vitaminEPer100g: Double? = nil,
+        vitaminKPer100g: Double? = nil,
+        vitaminB6Per100g: Double? = nil,
+        vitaminB12Per100g: Double? = nil,
+        folatePer100g: Double? = nil,
+        cholinePer100g: Double? = nil,
         calciumPer100g: Double? = nil,
         ironPer100g: Double? = nil,
         potassiumPer100g: Double? = nil,
+        caffeinePer100g: Double? = nil,
         servingDescription: String = "100g",
         gramsPerServing: Double = 100,
         servingSizeIsEstimated: Bool = true,
@@ -100,12 +125,21 @@ final class FoodItem {
         self.monounsaturatedFatPer100g = monounsaturatedFatPer100g
         self.polyunsaturatedFatPer100g = polyunsaturatedFatPer100g
         self.cholesterolPer100g = cholesterolPer100g
+        self.magnesiumPer100g = magnesiumPer100g
+        self.zincPer100g = zincPer100g
         self.vitaminAPer100g = vitaminAPer100g
         self.vitaminCPer100g = vitaminCPer100g
         self.vitaminDPer100g = vitaminDPer100g
+        self.vitaminEPer100g = vitaminEPer100g
+        self.vitaminKPer100g = vitaminKPer100g
+        self.vitaminB6Per100g = vitaminB6Per100g
+        self.vitaminB12Per100g = vitaminB12Per100g
+        self.folatePer100g = folatePer100g
+        self.cholinePer100g = cholinePer100g
         self.calciumPer100g = calciumPer100g
         self.ironPer100g = ironPer100g
         self.potassiumPer100g = potassiumPer100g
+        self.caffeinePer100g = caffeinePer100g
         self.servingDescription = servingDescription
         self.gramsPerServing = gramsPerServing
         self.servingSizeIsEstimated = servingSizeIsEstimated
@@ -141,12 +175,21 @@ final class FoodItem {
             monounsaturatedFatPer100g: nutritionPer100g.monounsaturatedFatPer100g,
             polyunsaturatedFatPer100g: nutritionPer100g.polyunsaturatedFatPer100g,
             cholesterolPer100g: nutritionPer100g.cholesterolPer100g,
+            magnesiumPer100g: nutritionPer100g.magnesiumPer100g,
+            zincPer100g: nutritionPer100g.zincPer100g,
             vitaminAPer100g: nutritionPer100g.vitaminAPer100g,
             vitaminCPer100g: nutritionPer100g.vitaminCPer100g,
             vitaminDPer100g: nutritionPer100g.vitaminDPer100g,
+            vitaminEPer100g: nutritionPer100g.vitaminEPer100g,
+            vitaminKPer100g: nutritionPer100g.vitaminKPer100g,
+            vitaminB6Per100g: nutritionPer100g.vitaminB6Per100g,
+            vitaminB12Per100g: nutritionPer100g.vitaminB12Per100g,
+            folatePer100g: nutritionPer100g.folatePer100g,
+            cholinePer100g: nutritionPer100g.cholinePer100g,
             calciumPer100g: nutritionPer100g.calciumPer100g,
             ironPer100g: nutritionPer100g.ironPer100g,
             potassiumPer100g: nutritionPer100g.potassiumPer100g,
+            caffeinePer100g: nutritionPer100g.caffeinePer100g,
             servingDescription: "\(servingSize)\(servingSizeUnit)",
             gramsPerServing: servingSize,
             servingSizeIsEstimated: false,

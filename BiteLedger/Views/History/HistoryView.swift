@@ -48,9 +48,7 @@ struct HistoryView: View {
             .background(Color("SurfacePrimary"))
             .navigationTitle("History")
             .onAppear {
-                if allLogs.isEmpty {
-                    loadRecentLogs()
-                }
+                loadRecentLogs()
             }
         }
     }

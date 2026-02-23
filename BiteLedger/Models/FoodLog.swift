@@ -28,6 +28,39 @@ final class FoodLog {
     var carbs: Double
     var fat: Double
     
+    // Cached micronutrients
+    var fiber: Double?
+    var sugar: Double?
+    var sodium: Double?
+    var saturatedFat: Double?
+    var transFat: Double?
+    var monounsaturatedFat: Double?
+    var polyunsaturatedFat: Double?
+    var cholesterol: Double?
+    
+    // Additional minerals
+    var magnesium: Double?
+    var zinc: Double?
+    
+    // Vitamins
+    var vitaminA: Double?
+    var vitaminC: Double?
+    var vitaminD: Double?
+    var vitaminE: Double?
+    var vitaminK: Double?
+    var vitaminB6: Double?
+    var vitaminB12: Double?
+    var folate: Double?
+    var choline: Double?
+    
+    // Minerals
+    var calcium: Double?
+    var iron: Double?
+    var potassium: Double?
+    
+    // Special tracking
+    var caffeine: Double?
+    
     // Optional: user notes
     var notes: String?
     
@@ -53,6 +86,39 @@ final class FoodLog {
         self.protein = foodItem.proteinPer100g * multiplier
         self.carbs = foodItem.carbsPer100g * multiplier
         self.fat = foodItem.fatPer100g * multiplier
+        
+        // Cache micronutrients
+        self.fiber = foodItem.fiberPer100g.map { $0 * multiplier }
+        self.sugar = foodItem.sugarPer100g.map { $0 * multiplier }
+        self.sodium = foodItem.sodiumPer100g.map { $0 * multiplier }
+        self.saturatedFat = foodItem.saturatedFatPer100g.map { $0 * multiplier }
+        self.transFat = foodItem.transFatPer100g.map { $0 * multiplier }
+        self.monounsaturatedFat = foodItem.monounsaturatedFatPer100g.map { $0 * multiplier }
+        self.polyunsaturatedFat = foodItem.polyunsaturatedFatPer100g.map { $0 * multiplier }
+        self.cholesterol = foodItem.cholesterolPer100g.map { $0 * multiplier }
+        
+        // Cache additional minerals
+        self.magnesium = foodItem.magnesiumPer100g.map { $0 * multiplier }
+        self.zinc = foodItem.zincPer100g.map { $0 * multiplier }
+        
+        // Cache vitamins
+        self.vitaminA = foodItem.vitaminAPer100g.map { $0 * multiplier }
+        self.vitaminC = foodItem.vitaminCPer100g.map { $0 * multiplier }
+        self.vitaminD = foodItem.vitaminDPer100g.map { $0 * multiplier }
+        self.vitaminE = foodItem.vitaminEPer100g.map { $0 * multiplier }
+        self.vitaminK = foodItem.vitaminKPer100g.map { $0 * multiplier }
+        self.vitaminB6 = foodItem.vitaminB6Per100g.map { $0 * multiplier }
+        self.vitaminB12 = foodItem.vitaminB12Per100g.map { $0 * multiplier }
+        self.folate = foodItem.folatePer100g.map { $0 * multiplier }
+        self.choline = foodItem.cholinePer100g.map { $0 * multiplier }
+        
+        // Cache minerals
+        self.calcium = foodItem.calciumPer100g.map { $0 * multiplier }
+        self.iron = foodItem.ironPer100g.map { $0 * multiplier }
+        self.potassium = foodItem.potassiumPer100g.map { $0 * multiplier }
+        
+        // Cache special tracking
+        self.caffeine = foodItem.caffeinePer100g.map { $0 * multiplier }
     }
     
     /// Format the serving display text (e.g., "2 tbsp" or "1.5 cups" or "1 medium")

@@ -282,9 +282,18 @@ extension USDAFoodItem {
             vitaminA100g: nil,
             vitaminC100g: nil,
             vitaminD100g: nil,
+            vitaminE100g: nil,
+            vitaminK100g: nil,
+            vitaminB6100g: nil,
+            vitaminB12100g: nil,
+            folate100g: nil,
+            choline100g: nil,
             calcium100g: nil,
             iron100g: nil,
             potassium100g: nil,
+            magnesium100g: nil,
+            zinc100g: nil,
+            caffeine100g: nil,
             energyKcalServing: nil,
             proteinsServing: nil,
             carbohydratesServing: nil,
@@ -322,12 +331,23 @@ extension USDAFoodDetail {
         var saturatedFat: Double = 0
         var transFat: Double = 0
         var cholesterol: Double = 0
+        var monounsaturatedFat: Double = 0
+        var polyunsaturatedFat: Double = 0
         var vitaminA: Double = 0
         var vitaminC: Double = 0
         var vitaminD: Double = 0
+        var vitaminE: Double = 0
+        var vitaminK: Double = 0
+        var vitaminB6: Double = 0
+        var vitaminB12: Double = 0
+        var folate: Double = 0
+        var choline: Double = 0
         var calcium: Double = 0
         var iron: Double = 0
         var potassium: Double = 0
+        var magnesium: Double = 0
+        var zinc: Double = 0
+        var caffeine: Double = 0
         
         for nutrientDetail in foodNutrients {
             let nutrient = nutrientDetail.nutrient
@@ -340,16 +360,27 @@ extension USDAFoodDetail {
             case "204": fat = amount
             case "291": fiber = amount
             case "269": sugar = amount
-            case "307": sodium = amount / 1000  // Convert mg to g for consistency
+            case "307": sodium = amount  // mg
             case "606": saturatedFat = amount
             case "605": transFat = amount
-            case "601": cholesterol = amount / 1000  // Convert mg to g
-            case "320": vitaminA = amount / 1000000  // Convert µg to g
-            case "401": vitaminC = amount / 1000  // Convert mg to g
-            case "324": vitaminD = amount / 1000000  // Convert µg to g
-            case "301": calcium = amount / 1000  // Convert mg to g
-            case "303": iron = amount / 1000  // Convert mg to g
-            case "306": potassium = amount / 1000  // Convert mg to g
+            case "645": monounsaturatedFat = amount
+            case "646": polyunsaturatedFat = amount
+            case "601": cholesterol = amount  // mg
+            case "320": vitaminA = amount  // µg
+            case "401": vitaminC = amount  // mg
+            case "324": vitaminD = amount  // µg
+            case "323": vitaminE = amount  // mg
+            case "430": vitaminK = amount  // µg
+            case "415": vitaminB6 = amount  // mg
+            case "418": vitaminB12 = amount  // µg
+            case "417": folate = amount  // µg
+            case "421": choline = amount  // mg
+            case "301": calcium = amount  // mg
+            case "303": iron = amount  // mg
+            case "306": potassium = amount  // mg
+            case "304": magnesium = amount  // mg
+            case "309": zinc = amount  // mg
+            case "262": caffeine = amount  // mg
             default: break
             }
         }
@@ -363,8 +394,8 @@ extension USDAFoodDetail {
             fat100g: FlexibleDouble(fat),
             saturatedFat100g: FlexibleDouble(saturatedFat),
             transFat100g: FlexibleDouble(transFat),
-            monounsaturatedFat100g: nil,
-            polyunsaturatedFat100g: nil,
+            monounsaturatedFat100g: FlexibleDouble(monounsaturatedFat),
+            polyunsaturatedFat100g: FlexibleDouble(polyunsaturatedFat),
             fiber100g: FlexibleDouble(fiber),
             sodium100g: FlexibleDouble(sodium),
             salt100g: nil,
@@ -372,9 +403,18 @@ extension USDAFoodDetail {
             vitaminA100g: FlexibleDouble(vitaminA),
             vitaminC100g: FlexibleDouble(vitaminC),
             vitaminD100g: FlexibleDouble(vitaminD),
+            vitaminE100g: FlexibleDouble(vitaminE),
+            vitaminK100g: FlexibleDouble(vitaminK),
+            vitaminB6100g: FlexibleDouble(vitaminB6),
+            vitaminB12100g: FlexibleDouble(vitaminB12),
+            folate100g: FlexibleDouble(folate),
+            choline100g: FlexibleDouble(choline),
             calcium100g: FlexibleDouble(calcium),
             iron100g: FlexibleDouble(iron),
             potassium100g: FlexibleDouble(potassium),
+            magnesium100g: FlexibleDouble(magnesium),
+            zinc100g: FlexibleDouble(zinc),
+            caffeine100g: FlexibleDouble(caffeine),
             energyKcalServing: nil,
             proteinsServing: nil,
             carbohydratesServing: nil,

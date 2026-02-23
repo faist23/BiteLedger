@@ -1,0 +1,294 @@
+//
+//  NutritionDashboard.swift
+//  BiteLedger
+//
+
+import SwiftUI
+
+struct NutritionDashboard: View {
+    let logs: [FoodLog]
+    let preferences: UserPreferences?
+    let onTap: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            // Top row: Calories + Protein
+            HStack(spacing: 12) {
+                NutritionTile(
+                    nutrient: .calories,
+                    value: totalCalories,
+                    goal: goalFor(.calories),
+                    showProgressBar: isTracked(.calories)
+                )
+                
+                NutritionTile(
+                    nutrient: .protein,
+                    value: totalProtein,
+                    goal: goalFor(.protein),
+                    showProgressBar: isTracked(.protein)
+                )
+            }
+            
+            // Bottom row: Carbs + Fat + Custom
+            HStack(spacing: 12) {
+                NutritionTile(
+                    nutrient: .carbs,
+                    value: totalCarbs,
+                    goal: goalFor(.carbs),
+                    showProgressBar: isTracked(.carbs)
+                )
+                
+                NutritionTile(
+                    nutrient: .fat,
+                    value: totalFat,
+                    goal: goalFor(.fat),
+                    showProgressBar: isTracked(.fat)
+                )
+                
+                if let pinnedNutrient = pinnedNutrient {
+                    NutritionTile(
+                        nutrient: pinnedNutrient,
+                        value: valueFor(pinnedNutrient),
+                        goal: goalFor(pinnedNutrient),
+                        showProgressBar: isTracked(pinnedNutrient)
+                    )
+                }
+            }
+        }
+        .onTapGesture {
+            onTap()
+        }
+    }
+    
+    // MARK: - Computed Properties
+    
+    private var totalCalories: Double {
+        logs.reduce(0) { $0 + $1.calories }
+    }
+    
+    private var totalProtein: Double {
+        logs.reduce(0) { $0 + $1.protein }
+    }
+    
+    private var totalCarbs: Double {
+        logs.reduce(0) { $0 + $1.carbs }
+    }
+    
+    private var totalFat: Double {
+        logs.reduce(0) { $0 + $1.fat }
+    }
+    
+    private var pinnedNutrient: Nutrient? {
+        guard let rawValue = preferences?.pinnedNutrient else { return nil }
+        return Nutrient(rawValue: rawValue)
+    }
+    
+    private func valueFor(_ nutrient: Nutrient) -> Double {
+        let rawValue: Double
+        
+        switch nutrient {
+        case .calories: return totalCalories
+        case .protein: return totalProtein
+        case .carbs: return totalCarbs
+        case .fat: return totalFat
+        case .fiber: return logs.reduce(0) { $0 + ($1.fiber ?? 0) }
+        case .sugar: return logs.reduce(0) { $0 + ($1.sugar ?? 0) }
+        case .saturatedFat: return logs.reduce(0) { $0 + ($1.saturatedFat ?? 0) }
+        case .transFat: return logs.reduce(0) { $0 + ($1.transFat ?? 0) }
+        case .monounsaturatedFat: return logs.reduce(0) { $0 + ($1.monounsaturatedFat ?? 0) }
+        case .polyunsaturatedFat: return logs.reduce(0) { $0 + ($1.polyunsaturatedFat ?? 0) }
+        
+        // Nutrients stored in grams, displayed in mg (×1000)
+        case .sodium: rawValue = logs.reduce(0) { $0 + ($1.sodium ?? 0) }
+        case .potassium: rawValue = logs.reduce(0) { $0 + ($1.potassium ?? 0) }
+        case .calcium: rawValue = logs.reduce(0) { $0 + ($1.calcium ?? 0) }
+        case .iron: rawValue = logs.reduce(0) { $0 + ($1.iron ?? 0) }
+        case .magnesium: rawValue = logs.reduce(0) { $0 + ($1.magnesium ?? 0) }
+        case .zinc: rawValue = logs.reduce(0) { $0 + ($1.zinc ?? 0) }
+        case .vitaminC: rawValue = logs.reduce(0) { $0 + ($1.vitaminC ?? 0) }
+        case .vitaminD: rawValue = logs.reduce(0) { $0 + ($1.vitaminD ?? 0) }
+        case .vitaminE: rawValue = logs.reduce(0) { $0 + ($1.vitaminE ?? 0) }
+        case .vitaminB6: rawValue = logs.reduce(0) { $0 + ($1.vitaminB6 ?? 0) }
+        case .choline: rawValue = logs.reduce(0) { $0 + ($1.choline ?? 0) }
+        case .caffeine: rawValue = logs.reduce(0) { $0 + ($1.caffeine ?? 0) }
+        case .cholesterol: rawValue = logs.reduce(0) { $0 + ($1.cholesterol ?? 0) }
+            
+        // Nutrients stored in grams, displayed in mcg (×1,000,000)
+        case .vitaminA: rawValue = logs.reduce(0) { $0 + ($1.vitaminA ?? 0) }
+        case .vitaminK: rawValue = logs.reduce(0) { $0 + ($1.vitaminK ?? 0) }
+        case .vitaminB12: rawValue = logs.reduce(0) { $0 + ($1.vitaminB12 ?? 0) }
+        case .folate: rawValue = logs.reduce(0) { $0 + ($1.folate ?? 0) }
+        }
+        
+        // Apply unit conversion based on display unit
+        switch nutrient.unit {
+        case "mg":
+            return rawValue * 1000  // grams to milligrams
+        case "mcg":
+            return rawValue * 1_000_000  // grams to micrograms
+        default:
+            return rawValue  // grams remain as grams
+        }
+    }
+    
+    private func goalFor(_ nutrient: Nutrient) -> NutrientGoal? {
+        guard let preferences = preferences else { return nil }
+        return preferences.goals[nutrient.rawValue]
+    }
+    
+    private func isTracked(_ nutrient: Nutrient) -> Bool {
+        preferences?.trackedGoalNutrient == nutrient.rawValue
+    }
+}
+
+struct NutritionTile: View {
+    let nutrient: Nutrient
+    let value: Double
+    let goal: NutrientGoal?
+    let showProgressBar: Bool
+    
+    var body: some View {
+        VStack(spacing: 6) {
+            // Label
+            Text(nutrient.rawValue.uppercased())
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color("TextSecondary"))
+            
+            // Value
+            if nutrient == .calories {
+                // Don't show unit for calories since label already says "CALORIES"
+                Text("\(formattedValue)")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color("TextPrimary"))
+            } else {
+                // Show unit for other nutrients (e.g., "125 g" for protein)
+                HStack(alignment: .firstTextBaseline, spacing: 2) {
+                    Text("\(formattedValue)")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color("TextPrimary"))
+                    
+                    Text(nutrient.unit)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color("TextTertiary"))
+                }
+            }
+            
+            // Progress bar (only if this is the tracked nutrient with a goal)
+            if showProgressBar, let goal = goal {
+                progressBar(for: goal)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color("SurfaceCard"))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color("DividerSubtle"), lineWidth: 1)
+        )
+    }
+    
+    private var formattedValue: String {
+        if value >= 100 {
+            return "\(Int(value))"
+        } else if value >= 10 {
+            return String(format: "%.1f", value)
+        } else {
+            return String(format: "%.2f", value)
+        }
+    }
+    
+    @ViewBuilder
+    private func progressBar(for goal: NutrientGoal) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                // Background
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color("DividerSubtle"))
+                    .frame(height: 4)
+                
+                // Progress
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(progressColor(for: goal))
+                    .frame(width: progressWidth(geometry: geometry, goal: goal), height: 4)
+            }
+        }
+        .frame(height: 4)
+    }
+    
+    private func progressWidth(geometry: GeometryProxy, goal: NutrientGoal) -> CGFloat {
+        let percentage: Double
+        
+        switch goal.goalType {
+        case .minimum, .maximum:
+            // For min/max, show progress toward the single target
+            percentage = value / goal.targetValue
+            
+        case .range:
+            // For range, show progress toward the midpoint of the range
+            if let rangeMax = goal.rangeMax {
+                let midpoint = (goal.targetValue + rangeMax) / 2
+                percentage = value / midpoint
+            } else {
+                percentage = value / goal.targetValue
+            }
+        }
+        
+        return min(geometry.size.width, geometry.size.width * CGFloat(percentage))
+    }
+    
+    private func progressColor(for goal: NutrientGoal) -> Color {
+        let percentage = value / goal.targetValue
+        
+        switch goal.goalType {
+        case .minimum:
+            // Green when reaching goal, stays green if over
+            return percentage >= 1.0 ? .green : Color("BrandPrimary")
+            
+        case .maximum:
+            // Green → Yellow → Orange → Red as approaching/exceeding limit
+            if percentage < 0.7 {
+                return .green
+            } else if percentage < 0.9 {
+                return .yellow
+            } else if percentage < 1.0 {
+                return .orange
+            } else {
+                return .orange // Stay orange, not red (less anxiety)
+            }
+            
+        case .range:
+            // Range has both min (targetValue) and max (rangeMax)
+            // Green when in range, yellow when slightly out, orange when way out
+            guard let rangeMax = goal.rangeMax else {
+                // Fallback if rangeMax not set
+                return percentage >= 1.0 ? .green : .yellow
+            }
+            
+            let rangeMin = goal.targetValue
+            
+            if value >= rangeMin && value <= rangeMax {
+                // Perfect! In range
+                return .green
+            } else if value < rangeMin {
+                // Under target minimum
+                let underPercentage = value / rangeMin
+                if underPercentage >= 0.8 {
+                    return .yellow  // Close to min
+                } else {
+                    return .orange  // Way under min
+                }
+            } else {
+                // Over target maximum
+                let overPercentage = value / rangeMax
+                if overPercentage <= 1.2 {
+                    return .yellow  // Slightly over max
+                } else {
+                    return .orange  // Way over max
+                }
+            }
+        }
+    }
+}
