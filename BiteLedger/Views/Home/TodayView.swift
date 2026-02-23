@@ -103,6 +103,9 @@ struct TodayView: View {
                     modelContext.insert(addedItem.foodItem)
                     try? modelContext.save()
                 }
+                
+                // Update the lastUsed date for this food item
+                addedItem.foodItem.lastUsed = timestamp
 
                 let foodLog = FoodLog(
                     foodItem: addedItem.foodItem,
@@ -129,12 +132,13 @@ struct TodayView: View {
             }
         }
         .sheet(isPresented: $showingDailyNutrition) {
-            DetailedNutritionView(title: "Daily Nutrition", logs: todayLogs)
+            DetailedNutritionView(title: "Daily Nutrition", logs: todayLogs, preferences: preferences)
         }
         .sheet(item: $showingMealNutrition) { meal in
             DetailedNutritionView(
                 title: "\(meal.rawValue) Nutrition",
-                logs: todayLogs.filter { $0.meal == meal }
+                logs: todayLogs.filter { $0.meal == meal },
+                preferences: preferences
             )
         }
         .sheet(isPresented: $showingDatePicker) {

@@ -819,6 +819,17 @@ struct MyFoodsListView: View {
             return preferred ?? items.first
         }
         
+        // Update lastUsed dates from logs if not already set
+        for foodItem in uniqueFoods {
+            // Find the most recent log for this food item
+            if let mostRecentLog = allLogs.first(where: { $0.foodItem?.id == foodItem.id }) {
+                // Only update if lastUsed is nil or older than the most recent log
+                if foodItem.lastUsed == nil || foodItem.lastUsed! < mostRecentLog.timestamp {
+                    foodItem.lastUsed = mostRecentLog.timestamp
+                }
+            }
+        }
+        
         let filteredFoods = uniqueFoods.filter { food in
             searchText.isEmpty || food.name.localizedCaseInsensitiveContains(searchText)
         }
@@ -993,6 +1004,17 @@ struct RecentFoodsForMealView: View {
             
             // Stop at 10 items
             if uniqueFoods.count >= 10 { break }
+        }
+        
+        // Update lastUsed dates from logs if not already set
+        for foodItem in uniqueFoods {
+            // Find the most recent log for this food item
+            if let mostRecentLog = allLogs.first(where: { $0.foodItem?.id == foodItem.id }) {
+                // Only update if lastUsed is nil or older than the most recent log
+                if foodItem.lastUsed == nil || foodItem.lastUsed! < mostRecentLog.timestamp {
+                    foodItem.lastUsed = mostRecentLog.timestamp
+                }
+            }
         }
         
         return uniqueFoods

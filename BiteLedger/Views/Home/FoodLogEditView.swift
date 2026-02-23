@@ -135,6 +135,19 @@ struct FoodLogEditView: View {
         totalGrams / 100.0
     }
     
+    private var currentServingDisplayText: String {
+        // If a portion is selected, show it with amount
+        if let portion = selectedPortion {
+            return formatAmount(amountValue) + " " + portion.modifier
+        }
+        
+        // Otherwise format based on selected unit
+        let amountText = formatAmount(amountValue)
+        let unitText = displayNameForUnit(selectedUnit)
+        
+        return "\(amountText) \(unitText)"
+    }
+    
     private var calculatedNutrition: NutritionFacts {
         NutritionFacts(
             caloriesPer100g: foodItem.caloriesPer100g * nutritionMultiplier,
@@ -145,6 +158,335 @@ struct FoodLogEditView: View {
             sugarPer100g: (foodItem.sugarPer100g ?? 0) * nutritionMultiplier,
             sodiumPer100g: (foodItem.sodiumPer100g ?? 0) * nutritionMultiplier
         )
+    }
+    
+    private var nutritionLabel: some View {
+        ElevatedCard(padding: 0, cornerRadius: 20) {
+            VStack(alignment: .leading, spacing: 0) {
+                // Nutrition Facts Header with Edit button
+                HStack {
+                    Text("Nutrition Facts")
+                        .font(.system(size: 32, weight: .black))
+                        .foregroundStyle(Color("TextPrimary"))
+                    
+                    Spacer()
+                    
+                    Button {
+                        showingNutritionEditor = true
+                    } label: {
+                        Image(systemName: "pencil.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(Color("BrandAccent"))
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                
+                // Heavy divider under header
+                Rectangle()
+                    .fill(Color("TextPrimary"))
+                    .frame(height: 8)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+                
+                VStack(spacing: 0) {
+                    nutritionFactsContent
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+            }
+        }
+    }
+    
+    private var nutritionFactsContent: some View {
+        VStack(spacing: 0) {
+            // Serving size info - dynamically update based on selections
+            Text(currentServingDisplayText)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 8)
+            
+            Text("Amount per serving")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
+            
+            // Calories
+            HStack(alignment: .firstTextBaseline) {
+                Text("Calories")
+                    .font(.system(size: 32, weight: .black))
+                Spacer()
+                Text("\(Int(calculatedNutrition.caloriesPer100g))")
+                    .font(.system(size: 44, weight: .black))
+            }
+            .padding(.vertical, 4)
+            
+            // Heavy divider
+            Rectangle()
+                .fill(Color("TextPrimary"))
+                .frame(height: 6)
+                .padding(.vertical, 4)
+            
+            // % Daily Value header
+            HStack {
+                Spacer()
+                Text("% Daily Value*")
+                    .font(.system(size: 12, weight: .bold))
+            }
+            .padding(.bottom, 4)
+            
+            // Thin divider
+            thinDivider()
+            
+            // Macronutrients
+            nutrientRow("Total Fat", calculatedNutrition.fatPer100g, "g", bold: true)
+            thinDivider()
+            
+            if let satFat = foodItem.saturatedFatPer100g, satFat > 0 {
+                indentedNutrientRow("Saturated Fat", satFat * nutritionMultiplier, "g")
+                thinDivider()
+            }
+            
+            if let transFat = foodItem.transFatPer100g, transFat > 0 {
+                indentedNutrientRow("Trans Fat", transFat * nutritionMultiplier, "g")
+                thinDivider()
+            }
+            
+            if let monoFat = foodItem.monounsaturatedFatPer100g, monoFat > 0 {
+                indentedNutrientRow("Monounsaturated Fat", monoFat * nutritionMultiplier, "g")
+                thinDivider()
+            }
+            
+            if let polyFat = foodItem.polyunsaturatedFatPer100g, polyFat > 0 {
+                indentedNutrientRow("Polyunsaturated Fat", polyFat * nutritionMultiplier, "g")
+                thinDivider()
+            }
+            
+            if let cholesterol = foodItem.cholesterolPer100g, cholesterol > 0 {
+                nutrientRow("Cholesterol", cholesterol * nutritionMultiplier * 1000, "mg", bold: true)
+                thinDivider()
+            }
+            
+            if let sodium = foodItem.sodiumPer100g, sodium > 0 {
+                nutrientRow("Sodium", sodium * nutritionMultiplier * 1000, "mg", bold: true)
+                thinDivider()
+            }
+            
+            nutrientRow("Total Carbohydrate", calculatedNutrition.carbsPer100g, "g", bold: true)
+            thinDivider()
+            
+            if let fiber = foodItem.fiberPer100g, fiber > 0 {
+                indentedNutrientRow("Dietary Fiber", fiber * nutritionMultiplier, "g")
+                thinDivider()
+            }
+            
+            if let sugar = foodItem.sugarPer100g, sugar > 0 {
+                indentedNutrientRow("Total Sugars", sugar * nutritionMultiplier, "g")
+                thinDivider()
+            }
+            
+            nutrientRow("Protein", calculatedNutrition.proteinPer100g, "g", bold: true)
+            
+            // Heavy divider before vitamins/minerals
+            Rectangle()
+                .fill(Color("TextPrimary"))
+                .frame(height: 8)
+                .padding(.vertical, 4)
+            
+            // Vitamins and Minerals
+            VStack(spacing: 0) {
+                if let vitaminD = foodItem.vitaminDPer100g, vitaminD > 0 {
+                    nutrientRow("Vitamin D", vitaminD * nutritionMultiplier * 1_000_000, "mcg")
+                    thinDivider()
+                }
+                
+                if let calcium = foodItem.calciumPer100g, calcium > 0 {
+                    nutrientRow("Calcium", calcium * nutritionMultiplier * 1000, "mg")
+                    thinDivider()
+                }
+                
+                if let iron = foodItem.ironPer100g, iron > 0 {
+                    nutrientRow("Iron", iron * nutritionMultiplier * 1000, "mg")
+                    thinDivider()
+                }
+                
+                if let potassium = foodItem.potassiumPer100g, potassium > 0 {
+                    nutrientRow("Potassium", potassium * nutritionMultiplier * 1000, "mg")
+                    thinDivider()
+                }
+                
+                if let vitaminA = foodItem.vitaminAPer100g, vitaminA > 0 {
+                    nutrientRow("Vitamin A", vitaminA * nutritionMultiplier * 1_000_000, "mcg")
+                    thinDivider()
+                }
+                
+                if let vitaminC = foodItem.vitaminCPer100g, vitaminC > 0 {
+                    nutrientRow("Vitamin C", vitaminC * nutritionMultiplier * 1000, "mg")
+                    thinDivider()
+                }
+                
+                if let vitaminE = foodItem.vitaminEPer100g, vitaminE > 0 {
+                    nutrientRow("Vitamin E", vitaminE * nutritionMultiplier * 1000, "mg")
+                    thinDivider()
+                }
+                
+                if let vitaminK = foodItem.vitaminKPer100g, vitaminK > 0 {
+                    nutrientRow("Vitamin K", vitaminK * nutritionMultiplier * 1_000_000, "mcg")
+                    thinDivider()
+                }
+                
+                if let vitaminB6 = foodItem.vitaminB6Per100g, vitaminB6 > 0 {
+                    nutrientRow("Vitamin B6", vitaminB6 * nutritionMultiplier * 1000, "mg")
+                    thinDivider()
+                }
+                
+                if let vitaminB12 = foodItem.vitaminB12Per100g, vitaminB12 > 0 {
+                    nutrientRow("Vitamin B12", vitaminB12 * nutritionMultiplier * 1_000_000, "mcg")
+                    thinDivider()
+                }
+                
+                if let folate = foodItem.folatePer100g, folate > 0 {
+                    nutrientRow("Folate", folate * nutritionMultiplier * 1_000_000, "mcg")
+                    thinDivider()
+                }
+                
+                if let choline = foodItem.cholinePer100g, choline > 0 {
+                    nutrientRow("Choline", choline * nutritionMultiplier * 1000, "mg")
+                    thinDivider()
+                }
+                
+                if let magnesium = foodItem.magnesiumPer100g, magnesium > 0 {
+                    nutrientRow("Magnesium", magnesium * nutritionMultiplier * 1000, "mg")
+                    thinDivider()
+                }
+                
+                if let zinc = foodItem.zincPer100g, zinc > 0 {
+                    nutrientRow("Zinc", zinc * nutritionMultiplier * 1000, "mg")
+                    thinDivider()
+                }
+                
+                if let caffeine = foodItem.caffeinePer100g, caffeine > 0 {
+                    nutrientRow("Caffeine", caffeine * nutritionMultiplier * 1000, "mg")
+                    thinDivider()
+                }
+            }
+            
+            // Heavy divider at bottom
+            Rectangle()
+                .fill(Color("TextPrimary"))
+                .frame(height: 4)
+                .padding(.top, 4)
+            
+            // FDA Disclaimer
+            Text("* The % Daily Value (DV) tells you how much a nutrient in a serving of food contributes to a daily diet. 2,000 calories a day is used for general nutrition advice.")
+                .font(.system(size: 9))
+                .foregroundStyle(Color("TextSecondary"))
+                .padding(.top, 8)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    
+    // Helper functions
+    private func thinDivider() -> some View {
+        Rectangle()
+            .fill(Color("TextPrimary"))
+            .frame(height: 1)
+    }
+    
+    private func nutrientRow(_ label: String, _ value: Double, _ unit: String, bold: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(label)
+                .font(.system(size: 14))
+                .fontWeight(bold ? .black : .regular)
+            
+            Spacer()
+            
+            Text(formatValue(value) + unit)
+                .font(.system(size: 14))
+                .fontWeight(bold ? .bold : .regular)
+                .frame(minWidth: 60, alignment: .trailing)
+            
+            if let percent = percentDV(value, for: label) {
+                Text("\(percent)%")
+                    .font(.system(size: 13))
+                    .fontWeight(.light)
+                    .foregroundStyle(Color("TextSecondary"))
+                    .frame(width: 50, alignment: .trailing)
+            } else {
+                Text("")
+                    .frame(width: 50)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+    
+    private func indentedNutrientRow(_ label: String, _ value: Double, _ unit: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(label)
+                .font(.system(size: 14))
+                .padding(.leading, 20)
+            
+            Spacer()
+            
+            Text(formatValue(value) + unit)
+                .font(.system(size: 14))
+                .frame(minWidth: 60, alignment: .trailing)
+            
+            if let percent = percentDV(value, for: label) {
+                Text("\(percent)%")
+                    .font(.system(size: 13))
+                    .fontWeight(.light)
+                    .foregroundStyle(Color("TextSecondary"))
+                    .frame(width: 50, alignment: .trailing)
+            } else {
+                Text("")
+                    .frame(width: 50)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+    
+    private func formatValue(_ value: Double) -> String {
+        if value >= 100 {
+            return "\(Int(value))"
+        } else if value >= 10 {
+            return String(format: "%.1f", value)
+        } else {
+            return String(format: "%.2f", value)
+        }
+    }
+    
+    private func fdaDailyValue(for nutrient: String) -> Double? {
+        switch nutrient {
+        case "Total Fat": return 78
+        case "Saturated Fat": return 20
+        case "Cholesterol": return 300
+        case "Sodium": return 2300
+        case "Total Carbohydrate": return 275
+        case "Dietary Fiber": return 28
+        case "Total Sugars": return 50
+        case "Protein": return 50
+        case "Vitamin A": return 900
+        case "Vitamin C": return 90
+        case "Vitamin D": return 20
+        case "Vitamin E": return 15
+        case "Vitamin K": return 120
+        case "Vitamin B6": return 1.7
+        case "Vitamin B12": return 2.4
+        case "Folate": return 400
+        case "Choline": return 550
+        case "Calcium": return 1300
+        case "Iron": return 18
+        case "Potassium": return 4700
+        case "Magnesium": return 420
+        case "Zinc": return 11
+        default: return nil
+        }
+    }
+    
+    private func percentDV(_ value: Double, for label: String) -> Int? {
+        guard let dv = fdaDailyValue(for: label), dv > 0 else { return nil }
+        return Int((value / dv * 100).rounded())
     }
     
     var body: some View {
@@ -181,159 +523,138 @@ struct FoodLogEditView: View {
                 .padding()
                 .background(Color("SurfacePrimary"))
                 
-                Spacer()
-                
-                // Nutrition header
-                HStack {
-                    Text("NUTRITION FACTS")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color("TextSecondary"))
-                    
-                    Spacer()
-                    
-                    Button {
-                        showingNutritionEditor = true
-                    } label: {
-                        Text("EDIT NUTRITION")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                        .foregroundStyle(Color("BrandAccent"))
+                ScrollView {
+                    VStack(spacing: 0) {
+                        nutritionLabel
                     }
+                    .padding()
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 8)
                 
-                // Nutrition display - LoseIt style
-                VStack {
-                    HStack(alignment: .top, spacing: 40) {
-                        // Large calorie display on left
-                        VStack(spacing: 4) {
-                            Text("\(Int(calculatedNutrition.caloriesPer100g))")
-                                .font(.system(size: 56, weight: .bold))
-                            Text("Calories")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        
-                        // Detailed nutrition on right
-                        VStack(alignment: .leading, spacing: 4) {
-                            NutritionRow(label: "Total Fat", value: calculatedNutrition.fatPer100g, unit: "g")
-                            if let satFat = foodItem.saturatedFatPer100g {
-                                NutritionRow(label: "  Sat Fat", value: satFat * nutritionMultiplier, unit: "g", isSubItem: true)
-                            }
-                            if let cholesterol = foodItem.cholesterolPer100g {
-                                NutritionRow(label: "  Cholesterol", value: cholesterol * nutritionMultiplier * 1000, unit: "mg", isSubItem: true)
-                            }
-                            if let sodium = calculatedNutrition.sodiumPer100g {
-                                NutritionRow(label: "Sodium", value: sodium * 1000, unit: "mg")
-                            }
-                            
-                            Divider()
-                                .padding(.vertical, 2)
-                            
-                            NutritionRow(label: "Total Carbs", value: calculatedNutrition.carbsPer100g, unit: "g")
-                            if let fiber = calculatedNutrition.fiberPer100g {
-                                NutritionRow(label: "  Fiber", value: fiber, unit: "g", isSubItem: true)
-                            }
-                            if let sugar = calculatedNutrition.sugarPer100g {
-                                NutritionRow(label: "  Sugars", value: sugar, unit: "g", isSubItem: true)
-                            }
-                            
-                            Divider()
-                                .padding(.vertical, 2)
-                            
-                            NutritionRow(label: "Protein", value: calculatedNutrition.proteinPer100g, unit: "g")
-                        }
-                        .font(.caption)
-                    }
-                }
-                .padding(24)
-                .background(Color("SurfacePrimary"))
-                .clipShape(RoundedRectangle(cornerRadius: 24))
-                .shadow(color: .black.opacity(0.05), radius: 12, y: 6)
-                .padding(.horizontal)
+                Spacer(minLength: 16)
                 
-                Spacer()
-                
-                // Portion size selector (if portions are available)
-                if hasPortions, let portions = foodItem.portions {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Size")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                        
-                        Menu {
-                            ForEach(portions) { portion in
-                                Button {
-                                    selectedPortion = portion
-                                } label: {
-                                    HStack {
-                                        Text(portion.modifier.capitalized)
-                                        Spacer()
-                                        if selectedPortion?.id == portion.id {
-                                            Image(systemName: "checkmark")
+                // Modern serving controls
+                VStack(spacing: 12) {
+                    // Portion size selector (if portions are available)
+                    if hasPortions, let portions = foodItem.portions {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Size")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Color("TextSecondary"))
+                            
+                            Menu {
+                                ForEach(portions) { portion in
+                                    Button {
+                                        selectedPortion = portion
+                                    } label: {
+                                        HStack {
+                                            Text(portion.modifier.capitalized)
+                                            Spacer()
+                                            if selectedPortion?.id == portion.id {
+                                                Image(systemName: "checkmark")
+                                            }
                                         }
                                     }
                                 }
+                            } label: {
+                                HStack {
+                                    Text(selectedPortion?.modifier.capitalized ?? "Select size")
+                                        .foregroundStyle(Color("TextPrimary"))
+                                    Spacer()
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .foregroundStyle(Color("TextSecondary"))
+                                        .font(.caption)
+                                }
+                                .padding(14)
+                                .background(Color("SurfaceCard"))
+                                .cornerRadius(12)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color("DividerSubtle"), lineWidth: 1)
+                                )
                             }
-                        } label: {
-                            HStack {
-                                Text(selectedPortion?.modifier.capitalized ?? "Select size")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "chevron.up.chevron.down")
-                                    .foregroundStyle(.secondary)
-                                    .font(.caption)
+                        }
+                    }
+                    
+                    // Amount controls
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Amount")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Color("TextSecondary"))
+                        
+                        HStack(spacing: 12) {
+                            // Quantity stepper
+                            HStack(spacing: 12) {
+                                Button {
+                                    decrementAmount()
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(Color("BrandAccent"))
+                                }
+                                .disabled(amountValue <= 0.25)
+                                
+                                Text(formatAmount(amountValue))
+                                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                                    .frame(minWidth: 80)
+                                    .multilineTextAlignment(.center)
+                                
+                                Button {
+                                    incrementAmount()
+                                } label: {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(Color("BrandAccent"))
+                                }
                             }
-                            .padding()
-                            .background(Color(.systemGray6))
-                            .cornerRadius(10)
+                            
+                            Spacer()
+                            
+                            // Unit selector
+                            Menu {
+                                ForEach(availableUnits, id: \.id) { unit in
+                                    Button {
+                                        selectedUnit = unit
+                                    } label: {
+                                        HStack {
+                                            Text(displayNameForUnit(unit))
+                                            Spacer()
+                                            if selectedUnit == unit {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Text(displayNameForUnit(selectedUnit))
+                                        .foregroundStyle(Color("TextPrimary"))
+                                        .fontWeight(.medium)
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.caption)
+                                        .foregroundStyle(Color("TextSecondary"))
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(Color("SurfaceCard"))
+                                .cornerRadius(12)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color("DividerSubtle"), lineWidth: 1)
+                                )
+                            }
                         }
+                        .padding(16)
+                        .background(Color("SurfaceCard"))
+                        .cornerRadius(16)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color("DividerSubtle"), lineWidth: 1)
+                        )
                     }
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
                 }
-                
-                // Amount label
-                Text("Amount")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 8)
-                
-                // Unified picker area - like LoseIt with 3 wheels side by side
-                HStack(spacing: 0) {
-                    // Whole number picker
-                    Picker("Whole", selection: $wholeNumber) {
-                        ForEach(0...500, id: \.self) { number in
-                            Text("\(number)").tag(number)
-                        }
-                    }
-                    .pickerStyle(.wheel)
-                    .frame(width: 80)
-                    
-                    // Fraction picker
-                    Picker("Fraction", selection: $fraction) {
-                        ForEach(Fraction.allCases) { frac in
-                            Text(frac.displayName).tag(frac)
-                        }
-                    }
-                    .pickerStyle(.wheel)
-                    .frame(width: 80)
-                    
-                    // Unit picker
-                    Picker("Unit", selection: $selectedUnit) {
-                        ForEach(availableUnits, id: \.id) { unit in
-                            Text(displayNameForUnit(unit)).tag(unit)
-                        }
-                    }
-                    .pickerStyle(.wheel)
-                    .frame(maxWidth: .infinity)
-                }
-                .frame(height: 150)
-                .background(Color("SurfacePrimary"))
-                    .clipShape(RoundedRectangle(cornerRadius: 24))
-                    .shadow(color: .black.opacity(0.05), radius: 12, y: 6)
+                .padding(.horizontal)
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Edit Food")
@@ -365,6 +686,98 @@ struct FoodLogEditView: View {
             return parsedServingUnit
         }
         return unit.rawValue
+    }
+    
+    private func incrementAmount() {
+        let currentValue = amountValue
+        
+        // Smart increment based on current value
+        if currentValue < 1 {
+            // Below 1: increment by 0.25
+            let newFraction = Fraction.allCases.first(where: { $0.rawValue > fraction.rawValue }) ?? .zero
+            if newFraction == .zero {
+                wholeNumber += 1
+                fraction = .zero
+            } else {
+                fraction = newFraction
+            }
+        } else if currentValue < 5 {
+            // 1-5: increment by 0.5
+            if fraction == .zero || fraction == .quarter || fraction == .third {
+                fraction = .half
+            } else {
+                wholeNumber += 1
+                fraction = .zero
+            }
+        } else {
+            // Above 5: increment by 1
+            wholeNumber += 1
+            fraction = .zero
+        }
+    }
+    
+    private func decrementAmount() {
+        let currentValue = amountValue
+        
+        guard currentValue > 0.25 else { return }
+        
+        // Smart decrement based on current value
+        if currentValue <= 1 {
+            // Below or at 1: decrement by 0.25
+            let currentIndex = Fraction.allCases.firstIndex(of: fraction) ?? 0
+            if currentIndex > 0 {
+                fraction = Fraction.allCases[currentIndex - 1]
+            } else if wholeNumber > 0 {
+                wholeNumber -= 1
+                fraction = .threeQuarters
+            }
+        } else if currentValue <= 5 {
+            // 1-5: decrement by 0.5
+            if fraction == .half || fraction == .threeQuarters || fraction == .twoThirds {
+                fraction = .zero
+            } else if wholeNumber > 0 {
+                wholeNumber -= 1
+                fraction = .half
+            }
+        } else {
+            // Above 5: decrement by 1
+            if fraction == .zero && wholeNumber > 0 {
+                wholeNumber -= 1
+            } else {
+                fraction = .zero
+            }
+        }
+    }
+    
+    private func formatAmount(_ value: Double) -> String {
+        let whole = Int(value)
+        let fractionalPart = value - Double(whole)
+        
+        if fractionalPart < 0.01 {
+            return "\(whole)"
+        }
+        
+        // Find closest fraction for display
+        let fractionText: String
+        if abs(fractionalPart - 0.25) < 0.01 {
+            fractionText = "¼"
+        } else if abs(fractionalPart - 0.33) < 0.02 {
+            fractionText = "⅓"
+        } else if abs(fractionalPart - 0.5) < 0.01 {
+            fractionText = "½"
+        } else if abs(fractionalPart - 0.67) < 0.02 {
+            fractionText = "⅔"
+        } else if abs(fractionalPart - 0.75) < 0.01 {
+            fractionText = "¾"
+        } else {
+            return String(format: "%.2f", value)
+        }
+        
+        if whole == 0 {
+            return fractionText
+        } else {
+            return "\(whole) \(fractionText)"
+        }
     }
     
     private func saveChanges() {
