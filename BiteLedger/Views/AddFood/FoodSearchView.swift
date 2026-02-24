@@ -17,9 +17,11 @@ struct FoodSearchView: View {
     @State private var showBarcodeScanner = false
     @State private var showManualEntry = false
     @State private var selectedProduct: ProductInfo?
-    @State private var selectedProductContext: (product: ProductInfo, existingFood: FoodItem?, initialAmount: Double?)? // Combined context
+    @State private var selectedProductContext: (product: ProductInfo, existingFood: FoodItem?, initialAmount: Double?, initialPortionId: Int?)? // Combined context
     @State private var selectedMeal: [FoodLog]?
     @State private var errorMessage: String?
+    @State private var searchTask: Task<Void, Never>? // Track current search task
+    @State private var debounceTask: Task<Void, Never>? // Track debounce task
     
     private let foodService = UnifiedFoodSearchService.shared
     
@@ -41,8 +43,34 @@ struct FoodSearchView: View {
                     TextField("Search", text: $searchText)
                         .textFieldStyle(.plain)
                         .onChange(of: searchText) { _, newValue in
-                            if selectedTab == .search && !newValue.isEmpty {
-                                performSearch()
+                            if selectedTab == .search {
+                                // Cancel any existing debounce task
+                                debounceTask?.cancel()
+                                
+                                // Clear results if search is empty
+                                if newValue.isEmpty {
+                                    searchTask?.cancel()
+                                    searchResults = []
+                                    errorMessage = nil
+                                    isSearching = false
+                                    return
+                                }
+                                
+                                // Don't search until at least 3 characters
+                                guard newValue.count >= 3 else {
+                                    searchTask?.cancel()
+                                    searchResults = []
+                                    isSearching = false
+                                    return
+                                }
+                                
+                                // Debounce search by 400ms
+                                debounceTask = Task {
+                                    try? await Task.sleep(for: .milliseconds(400))
+                                    if !Task.isCancelled {
+                                        performSearch(query: newValue)
+                                    }
+                                }
                             }
                         }
 
@@ -54,6 +82,8 @@ struct FoodSearchView: View {
                             searchText = ""
                             searchResults = []
                             errorMessage = nil
+                            searchTask?.cancel()
+                            debounceTask?.cancel()
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundStyle(Color("TextSecondary"))
@@ -164,13 +194,14 @@ struct FoodSearchView: View {
                             id: UUID(),
                             product: $0.product,
                             existingFood: $0.existingFood,
-                            initialServingAmount: $0.initialAmount
+                            initialServingAmount: $0.initialAmount,
+                            initialPortionId: $0.initialPortionId
                         )
                     }
                 },
                 set: {
                     selectedProductContext = $0.map {
-                        ($0.product, $0.existingFood, $0.initialServingAmount)
+                        ($0.product, $0.existingFood, $0.initialServingAmount, $0.initialPortionId)
                     }
                 }
             )) { context in
@@ -178,7 +209,8 @@ struct FoodSearchView: View {
                     product: context.product,
                     mealType: mealType,
                     existingFoodItem: context.existingFood,
-                    initialServingAmount: context.initialServingAmount
+                    initialServingAmount: context.initialServingAmount,
+                    initialPortionId: context.initialPortionId
                 ) { addedItem in
                     onFoodAdded(addedItem)
                     selectedProductContext = nil
@@ -274,9 +306,10 @@ struct FoodSearchView: View {
                             servingSize: servingSizeString,
                             quantity: "\(Int(foodItem.gramsPerServing))g",
                             portions: foodItem.portions?.map { ServingPortion(id: $0.id, amount: $0.amount, modifier: $0.modifier, gramWeight: $0.gramWeight) },
-            countriesTags: nil
+                            countriesTags: nil,
+                            lastUsed: mostRecentLog?.timestamp ?? foodItem.lastUsed
                         )
-                        selectedProductContext = (productInfo, foodItem, lastServingAmount)
+                        selectedProductContext = (productInfo, foodItem, lastServingAmount, mostRecentLog?.selectedPortionId)
                     }
                 )
             } else {
@@ -362,9 +395,10 @@ struct FoodSearchView: View {
                     servingSize: servingSizeString,
                     quantity: "\(Int(foodItem.gramsPerServing))g",
                     portions: foodItem.portions?.map { ServingPortion(id: $0.id, amount: $0.amount, modifier: $0.modifier, gramWeight: $0.gramWeight) },
-            countriesTags: nil
+                    countriesTags: nil,
+                    lastUsed: mostRecentLog?.timestamp ?? foodItem.lastUsed
                 )
-                selectedProductContext = (productInfo, foodItem, lastServingAmount)
+                selectedProductContext = (productInfo, foodItem, lastServingAmount, mostRecentLog?.selectedPortionId)
             }
         )
     }
@@ -497,23 +531,43 @@ struct FoodSearchView: View {
         }
     }
     
-    private func performSearch() {
-        guard !searchText.isEmpty else { return }
+    private func performSearch(query: String) {
+        guard !query.isEmpty, query.count >= 3 else { return }
+
+        // Cancel any previous search task
+        searchTask?.cancel()
 
         isSearching = true
         errorMessage = nil
 
-        Task {
-            // Search My Foods first
-            let myFoodsResults = searchMyFoods(query: searchText)
+        // Create a new search task
+        searchTask = Task {
+            // Capture the query to ensure we only update results if this is still the current search
+            let currentQuery = query
+            
+            // Search My Foods first (synchronous)
+            let myFoodsResults = searchMyFoods(query: currentQuery)
             print("📱 Found \(myFoodsResults.count) My Foods results")
 
             do {
-                print("🔍 Searching for: \(searchText)")
-                let results = try await foodService.searchAllDatabases(query: searchText)
+                print("🔍 Searching for: \(currentQuery)")
+                let results = try await foodService.searchAllDatabases(query: currentQuery)
+                
+                // Check if task was cancelled or query changed
+                guard !Task.isCancelled, searchText == currentQuery else {
+                    print("⚠️ Search cancelled or query changed")
+                    return
+                }
+                
                 print("📦 Got \(results.count) database results")
 
                 await MainActor.run {
+                    // Double-check that this result still matches the current search text
+                    guard searchText == currentQuery else {
+                        print("⚠️ Query changed during search, ignoring results")
+                        return
+                    }
+                    
                     // Filter out products without nutrition data
                     let filteredResults = results.filter {
                         if let nutriments = $0.nutriments {
@@ -533,13 +587,27 @@ struct FoodSearchView: View {
                     print("✅ Total results: \(searchResults.count) (\(myFoodsResults.count) from My Foods)")
 
                     if searchResults.isEmpty {
-                        errorMessage = "No results found for '\(searchText)'"
+                        errorMessage = "No results found for '\(currentQuery)'"
                     }
                     isSearching = false
                 }
+            } catch is CancellationError {
+                print("🔄 Search cancelled")
+                // Don't update UI on cancellation
             } catch {
                 print("❌ Search error: \(error)")
+                
+                // Check if task was cancelled
+                guard !Task.isCancelled, searchText == currentQuery else {
+                    return
+                }
+                
                 await MainActor.run {
+                    // Double-check query still matches
+                    guard searchText == currentQuery else {
+                        return
+                    }
+                    
                     // Even if database search fails, show My Foods results
                     searchResults = myFoodsResults
 
@@ -604,9 +672,13 @@ struct FoodSearchView: View {
             }
         }
 
-        // Convert to ProductInfo
+        // Convert to ProductInfo with lastUsed date
         return matchingFoods.map { foodItem in
-            ProductInfo(
+            // Find the most recent log for this food item
+            let mostRecentLog = allLogs.first { $0.foodItem?.id == foodItem.id }
+            let lastUsedDate = mostRecentLog?.timestamp ?? foodItem.lastUsed
+            
+            return ProductInfo(
                 code: foodItem.barcode ?? "myfoods_\(foodItem.id.uuidString)",
                 productName: foodItem.name,
                 brands: foodItem.brand,
@@ -653,7 +725,8 @@ struct FoodSearchView: View {
                 servingSize: "\(foodItem.gramsPerServing)g",
                 quantity: "\(Int(foodItem.gramsPerServing))g",
                 portions: foodItem.portions?.map { ServingPortion(id: $0.id, amount: $0.amount, modifier: $0.modifier, gramWeight: $0.gramWeight) },
-                countriesTags: nil
+                countriesTags: nil,
+                lastUsed: lastUsedDate
             )
         }
     }
@@ -681,9 +754,74 @@ struct FoodSearchView: View {
     }
     
     private func handleProductSelection(_ product: ProductInfo) {
-        // Check if this is a USDA product
-        if product.code.hasPrefix("usda_") {
-            // Fetch full details to get portions
+        // Check if we already have this food item saved (to preserve any edits)
+        let existingFood = allLogs.compactMap { $0.foodItem }
+            .first { $0.barcode == product.code }
+        
+        if let existingFood = existingFood {
+            // Use the existing food item to preserve edits
+            print("✅ Found existing food item for \(product.code), using saved version with edits")
+            
+            // Find the most recent log entry for this food item to get the last used serving and portion
+            let mostRecentLog = allLogs.first { $0.foodItem?.id == existingFood.id }
+            let lastServingAmount = mostRecentLog?.servingMultiplier ?? 1.0
+            let lastPortionId = mostRecentLog?.selectedPortionId
+            
+            // Convert existing FoodItem to ProductInfo to pass to serving picker
+            let productInfo = ProductInfo(
+                code: existingFood.barcode ?? product.code,
+                productName: existingFood.name,
+                brands: existingFood.brand,
+                imageUrl: existingFood.imageURL,
+                nutriments: Nutriments(
+                    energyKcal100g: FlexibleDouble(existingFood.caloriesPer100g),
+                    energyKcalComputed: existingFood.caloriesPer100g,
+                    proteins100g: FlexibleDouble(existingFood.proteinPer100g),
+                    carbohydrates100g: FlexibleDouble(existingFood.carbsPer100g),
+                    sugars100g: existingFood.sugarPer100g.map { FlexibleDouble($0) },
+                    fat100g: FlexibleDouble(existingFood.fatPer100g),
+                    saturatedFat100g: existingFood.saturatedFatPer100g.map { FlexibleDouble($0) },
+                    transFat100g: existingFood.transFatPer100g.map { FlexibleDouble($0) },
+                    monounsaturatedFat100g: existingFood.monounsaturatedFatPer100g.map { FlexibleDouble($0) },
+                    polyunsaturatedFat100g: existingFood.polyunsaturatedFatPer100g.map { FlexibleDouble($0) },
+                    fiber100g: existingFood.fiberPer100g.map { FlexibleDouble($0) },
+                    sodium100g: existingFood.sodiumPer100g.map { FlexibleDouble($0) },
+                    salt100g: nil,
+                    cholesterol100g: existingFood.cholesterolPer100g.map { FlexibleDouble($0) },
+                    vitaminA100g: existingFood.vitaminAPer100g.map { FlexibleDouble($0) },
+                    vitaminC100g: existingFood.vitaminCPer100g.map { FlexibleDouble($0) },
+                    vitaminD100g: existingFood.vitaminDPer100g.map { FlexibleDouble($0) },
+                    vitaminE100g: existingFood.vitaminEPer100g.map { FlexibleDouble($0) },
+                    vitaminK100g: existingFood.vitaminKPer100g.map { FlexibleDouble($0) },
+                    vitaminB6100g: existingFood.vitaminB6Per100g.map { FlexibleDouble($0) },
+                    vitaminB12100g: existingFood.vitaminB12Per100g.map { FlexibleDouble($0) },
+                    folate100g: existingFood.folatePer100g.map { FlexibleDouble($0) },
+                    choline100g: existingFood.cholinePer100g.map { FlexibleDouble($0) },
+                    calcium100g: existingFood.calciumPer100g.map { FlexibleDouble($0) },
+                    iron100g: existingFood.ironPer100g.map { FlexibleDouble($0) },
+                    potassium100g: existingFood.potassiumPer100g.map { FlexibleDouble($0) },
+                    magnesium100g: existingFood.magnesiumPer100g.map { FlexibleDouble($0) },
+                    zinc100g: existingFood.zincPer100g.map { FlexibleDouble($0) },
+                    caffeine100g: existingFood.caffeinePer100g.map { FlexibleDouble($0) },
+                    energyKcalServing: nil,
+                    proteinsServing: nil,
+                    carbohydratesServing: nil,
+                    sugarsServing: nil,
+                    fatServing: nil,
+                    saturatedFatServing: nil,
+                    fiberServing: nil,
+                    sodiumServing: nil
+                ),
+                servingSize: "\(existingFood.gramsPerServing)g",
+                quantity: "\(Int(existingFood.gramsPerServing))g",
+                portions: existingFood.portions?.map { ServingPortion(id: $0.id, amount: $0.amount, modifier: $0.modifier, gramWeight: $0.gramWeight) },
+                countriesTags: nil,
+                lastUsed: mostRecentLog?.timestamp ?? existingFood.lastUsed
+            )
+            
+            selectedProductContext = (productInfo, existingFood, lastServingAmount, lastPortionId)
+        } else if product.code.hasPrefix("usda_") {
+            // New USDA product - fetch full details to get portions
             Task {
                 do {
                     let detailedProduct = try await UnifiedFoodSearchService.shared.getProductDetails(code: product.code)
@@ -719,6 +857,7 @@ private struct ProductContext: Identifiable {
     let product: ProductInfo
     let existingFood: FoodItem?
     let initialServingAmount: Double?
+    let initialPortionId: Int?
 }
 
 struct ProductQuickRow: View {
@@ -750,11 +889,22 @@ struct ProductQuickRow: View {
                             .lineLimit(1)
                     }
                     
-                    if let nutriments = product.nutriments {
-                        Text("\(Int(nutriments.calories)) cal per 100g")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundStyle(Color("BrandAccent"))
+                    HStack(spacing: 4) {
+                        if let nutriments = product.nutriments {
+                            Text("\(Int(nutriments.calories)) cal per 100g")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundStyle(Color("BrandAccent"))
+                        }
+                        
+                        if let lastUsed = product.lastUsed {
+                            Text("•")
+                                .foregroundStyle(Color("TextSecondary"))
+                                .font(.caption)
+                            Text(lastUsedText(for: lastUsed))
+                                .font(.caption)
+                                .foregroundStyle(Color("TextSecondary"))
+                        }
                     }
                 }
                 
@@ -794,6 +944,33 @@ struct ProductQuickRow: View {
                         .font(.caption)
                         .foregroundStyle(Color("TextSecondary"))
                 }
+        }
+    }
+    
+    // MARK: - Helper
+    
+    private func lastUsedText(for date: Date) -> String {
+        let calendar = Calendar.current
+        let now = Date()
+        
+        if calendar.isDateInToday(date) {
+            return "today"
+        } else if calendar.isDateInYesterday(date) {
+            return "yesterday"
+        } else {
+            let days = calendar.dateComponents([.day], from: date, to: now).day ?? 0
+            if days < 7 {
+                return "\(days)d ago"
+            } else if days < 30 {
+                let weeks = days / 7
+                return "\(weeks)w ago"
+            } else if days < 365 {
+                let months = days / 30
+                return "\(months)mo ago"
+            } else {
+                let years = days / 365
+                return "\(years)y ago"
+            }
         }
     }
 }

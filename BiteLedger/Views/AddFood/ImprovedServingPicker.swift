@@ -10,6 +10,7 @@ struct ImprovedServingPicker: View {
     let mealType: MealType
     let existingFoodItem: FoodItem? // If provided, reuse this instead of creating new
     let initialServingAmount: Double? // If provided, use this as the default amount
+    let initialPortionId: Int? // If provided, use this as the initial selected portion
     let onAdd: (AddedFoodItem) -> Void
     
     @State private var wholeNumber: Int
@@ -44,11 +45,12 @@ struct ImprovedServingPicker: View {
         }
     }
     
-    init(product: ProductInfo, mealType: MealType, existingFoodItem: FoodItem? = nil, initialServingAmount: Double? = nil, onAdd: @escaping (AddedFoodItem) -> Void) {
+    init(product: ProductInfo, mealType: MealType, existingFoodItem: FoodItem? = nil, initialServingAmount: Double? = nil, initialPortionId: Int? = nil, onAdd: @escaping (AddedFoodItem) -> Void) {
         self.product = product
         self.mealType = mealType
         self.existingFoodItem = existingFoodItem
         self.initialServingAmount = initialServingAmount
+        self.initialPortionId = initialPortionId
         self.onAdd = onAdd
         
         // Infer food type for density calculations
@@ -57,8 +59,14 @@ struct ImprovedServingPicker: View {
         // Check if product has portions
         self.hasPortions = (product.portions?.count ?? 0) > 0
         
-        // Set initial portion if available
-        if let firstPortion = product.portions?.first {
+        // Set initial portion - use initialPortionId if provided, otherwise first portion
+        if let portionId = initialPortionId,
+           let portions = product.portions,
+           let portion = portions.first(where: { $0.id == portionId }) {
+            print("✅ Setting initial portion to previously selected: \(portion.modifier)")
+            _selectedPortion = State(initialValue: portion)
+        } else if let firstPortion = product.portions?.first {
+            print("⚠️ No initial portion specified, defaulting to first: \(firstPortion.modifier)")
             _selectedPortion = State(initialValue: firstPortion)
         }
         
@@ -440,7 +448,8 @@ struct MacroColumn: View {
         servingSize: "2 tbsp (32g)",
         quantity: nil,
         portions: nil,
-            countriesTags: nil
+        countriesTags: nil,
+        lastUsed: nil
     )
     
     ImprovedServingPicker(product: sampleProduct, mealType: .breakfast) { _ in }

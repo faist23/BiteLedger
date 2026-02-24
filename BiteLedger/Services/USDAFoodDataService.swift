@@ -313,7 +313,8 @@ extension USDAFoodItem {
             servingSize: "100g",
             quantity: nil,
             portions: nil,  // Search results don't include portions
-            countriesTags: ["en:united-states"]  // USDA is US-only
+            countriesTags: ["en:united-states"],  // USDA is US-only
+            lastUsed: nil  // Not from My Foods
         )
     }
 }
@@ -506,7 +507,8 @@ extension USDAFoodDetail {
             servingSize: defaultServing,
             quantity: portionsList, // Store portions info for reference
             portions: servingPortions,
-            countriesTags: ["en:united-states"]  // USDA is US-only
+            countriesTags: ["en:united-states"],  // USDA is US-only
+            lastUsed: nil  // Not from My Foods
         )
     }
 }

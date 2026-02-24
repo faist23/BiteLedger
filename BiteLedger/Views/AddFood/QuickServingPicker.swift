@@ -310,7 +310,8 @@ struct MacroCard: View {
         servingSize: "21g",
         quantity: "340g",
         portions: nil,
-            countriesTags: nil
+        countriesTags: nil,
+        lastUsed: nil
     )
     
     QuickServingPicker(product: sampleProduct, mealType: .breakfast) { _ in }

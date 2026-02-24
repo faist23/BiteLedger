@@ -342,7 +342,8 @@ struct NutritionRow: View {
         servingSize: "50g",
         quantity: "500g",
         portions: nil,
-            countriesTags: nil
+        countriesTags: nil,
+        lastUsed: nil
     )
     
     ProductDetailView(product: sampleProduct)

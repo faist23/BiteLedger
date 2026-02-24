@@ -159,6 +159,7 @@ struct TodayView: View {
                             loadLogsForSelectedDate()
                         }
                         .disabled(Calendar.current.isDateInToday(selectedDate))
+                        .foregroundStyle(Calendar.current.isDateInToday(selectedDate) ? Color.secondary : Color("BrandPrimary"))
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") {

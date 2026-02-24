@@ -195,6 +195,7 @@ struct ProductInfo: Codable, Identifiable {
     let quantity: String?
     let portions: [ServingPortion]?  // USDA portions (e.g., "1 medium banana")
     let countriesTags: [String]?  // Countries where product is sold
+    let lastUsed: Date?  // For My Foods - when this item was last used
 
     var id: String { code }
     
@@ -219,6 +220,36 @@ struct ProductInfo: Codable, Identifiable {
         case quantity
         case portions
         case countriesTags = "countries_tags"
+        // lastUsed is not from API, so not in CodingKeys
+    }
+    
+    // Custom initializer for creating ProductInfo manually (with lastUsed)
+    init(code: String, productName: String?, brands: String?, imageUrl: String?, nutriments: Nutriments?, servingSize: String?, quantity: String?, portions: [ServingPortion]?, countriesTags: [String]?, lastUsed: Date?) {
+        self.code = code
+        self.productName = productName
+        self.brands = brands
+        self.imageUrl = imageUrl
+        self.nutriments = nutriments
+        self.servingSize = servingSize
+        self.quantity = quantity
+        self.portions = portions
+        self.countriesTags = countriesTags
+        self.lastUsed = lastUsed
+    }
+    
+    // Custom decoder for API responses (lastUsed defaults to nil)
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        code = try container.decode(String.self, forKey: .code)
+        productName = try? container.decode(String.self, forKey: .productName)
+        brands = try? container.decode(String.self, forKey: .brands)
+        imageUrl = try? container.decode(String.self, forKey: .imageUrl)
+        nutriments = try? container.decode(Nutriments.self, forKey: .nutriments)
+        servingSize = try? container.decode(String.self, forKey: .servingSize)
+        quantity = try? container.decode(String.self, forKey: .quantity)
+        portions = try? container.decode([ServingPortion].self, forKey: .portions)
+        countriesTags = try? container.decode([String].self, forKey: .countriesTags)
+        lastUsed = nil  // Not from API
     }
 }
 
