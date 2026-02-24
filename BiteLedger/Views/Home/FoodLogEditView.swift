@@ -21,6 +21,8 @@ struct FoodLogEditView: View {
     @State private var selectedUnit: ServingUnit
     @State private var showingNutritionEditor = false
     @State private var selectedPortion: StoredPortion?
+    @State private var showingAmountTextField = false
+    @State private var amountTextFieldValue: String = ""
     
     private let foodType: FoodType
     private let parsedServingUnit: String
@@ -595,10 +597,29 @@ struct FoodLogEditView: View {
                                 }
                                 .disabled(amountValue <= 0.25)
                                 
-                                Text(formatAmount(amountValue))
-                                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                                    .frame(minWidth: 80)
-                                    .multilineTextAlignment(.center)
+                                // Tappable number that switches to text field
+                                if showingAmountTextField {
+                                    TextField("Amount", text: $amountTextFieldValue)
+                                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                                        .frame(minWidth: 80)
+                                        .multilineTextAlignment(.center)
+                                        .keyboardType(.decimalPad)
+                                        .onSubmit {
+                                            commitTextFieldAmount()
+                                        }
+                                        .onAppear {
+                                            amountTextFieldValue = String(format: "%.2f", amountValue).replacingOccurrences(of: ".00", with: "")
+                                        }
+                                } else {
+                                    Text(formatAmount(amountValue))
+                                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                                        .frame(minWidth: 80)
+                                        .multilineTextAlignment(.center)
+                                        .onTapGesture {
+                                            showingAmountTextField = true
+                                            amountTextFieldValue = String(format: "%.2f", amountValue).replacingOccurrences(of: ".00", with: "")
+                                        }
+                                }
                                 
                                 Button {
                                     incrementAmount()
@@ -657,6 +678,12 @@ struct FoodLogEditView: View {
                 .padding(.horizontal)
             }
             .background(Color(.systemGroupedBackground))
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if showingAmountTextField {
+                    commitTextFieldAmount()
+                }
+            }
             .navigationTitle("Edit Food")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -671,6 +698,16 @@ struct FoodLogEditView: View {
                         saveChanges()
                     }
                     .fontWeight(.semibold)
+                }
+                
+                // Keyboard toolbar when text field is active
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        commitTextFieldAmount()
+                    }
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Color("BrandAccent"))
                 }
             }
             .sheet(isPresented: $showingNutritionEditor) {
@@ -778,6 +815,26 @@ struct FoodLogEditView: View {
         } else {
             return "\(whole) \(fractionText)"
         }
+    }
+    
+    private func commitTextFieldAmount() {
+        // Parse the text field value
+        if let newValue = Double(amountTextFieldValue.replacingOccurrences(of: ",", with: ".")), newValue > 0 {
+            // Set the whole number and fraction from the parsed value
+            let whole = Int(newValue)
+            let fractionalPart = newValue - Double(whole)
+            
+            wholeNumber = whole
+            
+            // Find closest fraction
+            let closestFraction = Fraction.allCases.min(by: { 
+                abs($0.rawValue - fractionalPart) < abs($1.rawValue - fractionalPart) 
+            }) ?? .zero
+            
+            fraction = closestFraction
+        }
+        
+        showingAmountTextField = false
     }
     
     private func saveChanges() {

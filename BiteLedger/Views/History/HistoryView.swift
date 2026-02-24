@@ -7,15 +7,18 @@
 
 import SwiftUI
 import SwiftData
+import Charts
 
 struct HistoryView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query private var preferences: [UserPreferences]
     @State private var allLogs: [FoodLog] = []
     @State private var selectedMealFilter: MealType? = nil // nil = all meals
     @State private var isLoading = true
     @State private var calculatedStreak = 0
     @State private var oldestLogDate: Date?
     @State private var totalUniqueDaysAllTime = 0
+    @State private var selectedTimeRange: TimeRange = .thirtyDays
     
     var body: some View {
         NavigationStack {
@@ -33,6 +36,11 @@ struct HistoryView: View {
                         VStack(spacing: 24) {
                             // Stats row
                             statsRow
+                            
+                            // Goal Charts Section
+                            if !activeGoals.isEmpty {
+                                goalChartsSection
+                            }
                             
                             // Meal filter buttons
                             mealFilterButtons
@@ -145,6 +153,146 @@ struct HistoryView: View {
                 }
             }
             .padding(.horizontal, 20)
+        }
+    }
+    
+    // MARK: - Goal Charts Section
+    
+    private var goalChartsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Goal Progress")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundStyle(Color("TextPrimary"))
+                
+                Spacer()
+                
+                // Time range picker
+                Picker("Range", selection: $selectedTimeRange) {
+                    ForEach(TimeRange.allCases, id: \.self) { range in
+                        Text(range.rawValue).tag(range)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 180)
+            }
+            .padding(.horizontal, 4)
+            
+            ForEach(activeGoals, id: \.rawValue) { nutrient in
+                if let goal = userGoals[nutrient.rawValue] {
+                    GoalChartCard(
+                        nutrient: nutrient,
+                        goal: goal,
+                        dailyData: dailyTotals(for: nutrient),
+                        timeRange: selectedTimeRange
+                    )
+                }
+            }
+        }
+    }
+    
+    private var activeGoals: [Nutrient] {
+        guard let prefs = preferences.first else { return [] }
+        
+        // Dashboard order: Calories, Protein, Carbs, Fat, then pinned nutrient
+        let pinnedNutrient = prefs.pinnedNutrient.flatMap { Nutrient(rawValue: $0) }
+        let dashboardOrder: [Nutrient] = [.calories, .protein, .carbs, .fat, pinnedNutrient].compactMap { $0 }
+        
+        // Get all nutrients with goals
+        let withGoals = prefs.activeGoalNutrients
+        
+        // Charts appear in dashboard order, then others alphabetically
+        let ordered = dashboardOrder.filter { withGoals.contains($0) }
+        let remaining = withGoals.filter { !dashboardOrder.contains($0) }.sorted { $0.rawValue < $1.rawValue }
+        
+        return ordered + remaining
+    }
+    
+    private var userGoals: [String: NutrientGoal] {
+        guard let prefs = preferences.first else { return [:] }
+        return prefs.goals
+    }
+    
+    private func dailyTotals(for nutrient: Nutrient) -> [(Date, Double)] {
+        let calendar = Calendar.current
+        let startDate: Date
+        
+        switch selectedTimeRange {
+        case .sevenDays:
+            startDate = calendar.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+        case .thirtyDays:
+            startDate = calendar.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+        case .ninetyDays:
+            startDate = calendar.date(byAdding: .day, value: -90, to: Date()) ?? Date()
+        }
+        
+        let recentLogs = allLogs.filter { $0.timestamp >= startDate }
+        
+        // Group by day
+        let grouped = Dictionary(grouping: recentLogs) { log in
+            calendar.startOfDay(for: log.timestamp)
+        }
+        
+        return grouped.map { date, logs in
+            let total = totalValue(for: nutrient, in: logs)
+            return (date, total)
+        }
+        .sorted { $0.0 < $1.0 }
+    }
+    
+    private func totalValue(for nutrient: Nutrient, in logs: [FoodLog]) -> Double {
+        switch nutrient {
+        case .calories:
+            return logs.reduce(0) { $0 + $1.calories }
+        case .protein:
+            return logs.reduce(0) { $0 + $1.protein }
+        case .carbs:
+            return logs.reduce(0) { $0 + $1.carbs }
+        case .fat:
+            return logs.reduce(0) { $0 + $1.fat }
+        case .fiber:
+            return logs.reduce(0) { $0 + ($1.fiber ?? 0) }
+        case .sugar:
+            return logs.reduce(0) { $0 + ($1.sugar ?? 0) }
+        case .saturatedFat:
+            return logs.reduce(0) { $0 + ($1.saturatedFat ?? 0) }
+        case .sodium:
+            return logs.reduce(0) { $0 + ($1.sodium ?? 0) } * 1000 // Convert to mg
+        case .potassium:
+            return logs.reduce(0) { $0 + ($1.potassium ?? 0) } * 1000
+        case .calcium:
+            return logs.reduce(0) { $0 + ($1.calcium ?? 0) } * 1000
+        case .iron:
+            return logs.reduce(0) { $0 + ($1.iron ?? 0) } * 1000
+        case .magnesium:
+            return logs.reduce(0) { $0 + ($1.magnesium ?? 0) } * 1000
+        case .zinc:
+            return logs.reduce(0) { $0 + ($1.zinc ?? 0) } * 1000
+        case .vitaminC:
+            return logs.reduce(0) { $0 + ($1.vitaminC ?? 0) } * 1000
+        case .vitaminD:
+            return logs.reduce(0) { $0 + ($1.vitaminD ?? 0) } * 1000
+        case .vitaminE:
+            return logs.reduce(0) { $0 + ($1.vitaminE ?? 0) } * 1000
+        case .vitaminB6:
+            return logs.reduce(0) { $0 + ($1.vitaminB6 ?? 0) } * 1000
+        case .choline:
+            return logs.reduce(0) { $0 + ($1.choline ?? 0) } * 1000
+        case .caffeine:
+            return logs.reduce(0) { $0 + ($1.caffeine ?? 0) } * 1000
+        case .cholesterol:
+            return logs.reduce(0) { $0 + ($1.cholesterol ?? 0) } * 1000
+        case .vitaminA:
+            return logs.reduce(0) { $0 + ($1.vitaminA ?? 0) } * 1_000_000 // Convert to mcg
+        case .vitaminK:
+            return logs.reduce(0) { $0 + ($1.vitaminK ?? 0) } * 1_000_000
+        case .vitaminB12:
+            return logs.reduce(0) { $0 + ($1.vitaminB12 ?? 0) } * 1_000_000
+        case .folate:
+            return logs.reduce(0) { $0 + ($1.folate ?? 0) } * 1_000_000
+        default:
+            return 0
         }
     }
     
@@ -338,6 +486,290 @@ struct StatCard: View {
         .background(Color("SurfacePrimary"))
         .cornerRadius(16)
         .shadow(color: .black.opacity(0.05), radius: 8, y: 4)
+    }
+}
+
+// MARK: - Time Range
+
+enum TimeRange: String, CaseIterable {
+    case sevenDays = "7D"
+    case thirtyDays = "30D"
+    case ninetyDays = "90D"
+}
+
+// MARK: - Goal Chart Card
+
+struct GoalChartCard: View {
+    let nutrient: Nutrient
+    let goal: NutrientGoal
+    let dailyData: [(Date, Double)]
+    let timeRange: TimeRange
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(nutrient.rawValue)
+                        .font(.headline)
+                        .foregroundStyle(Color("TextPrimary"))
+                    
+                    Text(goalDescription)
+                        .font(.caption)
+                        .foregroundStyle(Color("TextSecondary"))
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(averageValueFormatted)
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .foregroundStyle(Color("TextPrimary"))
+                    
+                    Text("avg \(nutrient.unit)/day")
+                        .font(.caption2)
+                        .foregroundStyle(Color("TextSecondary"))
+                }
+            }
+            
+            // Rolling average success indicator
+            HStack(spacing: 8) {
+                Image(systemName: weeklyAverageOnTarget ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                    .foregroundStyle(weeklyAverageOnTarget ? .green : .orange)
+                    .font(.caption)
+                
+                Text(weeklyAverageStatusText)
+                    .font(.caption)
+                    .foregroundStyle(Color("TextSecondary"))
+            }
+            
+            // Chart
+            Chart {
+                // Daily values as area chart
+                ForEach(dailyData, id: \.0) { date, value in
+                    AreaMark(
+                        x: .value("Date", date),
+                        y: .value("Amount", value)
+                    )
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [Color("BrandPrimary").opacity(0.2), Color("BrandPrimary").opacity(0.0)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .interpolationMethod(.catmullRom)
+                }
+                
+                // 7-day rolling average line (bold and prominent)
+                ForEach(rollingAverageData, id: \.0) { date, avgValue in
+                    LineMark(
+                        x: .value("Date", date),
+                        y: .value("Average", avgValue)
+                    )
+                    .foregroundStyle(Color("BrandPrimary"))
+                    .lineStyle(StrokeStyle(lineWidth: 3))
+                    .interpolationMethod(.catmullRom)
+                }
+                
+                // Goal threshold line(s)
+                switch goal.goalType {
+                case .minimum, .maximum:
+                    RuleMark(y: .value("Goal", goal.targetValue))
+                        .foregroundStyle(.green.opacity(0.6))
+                        .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
+                case .range:
+                    let rangeMax = goal.rangeMax ?? (goal.targetValue * 1.1)
+                    
+                    // Min line
+                    RuleMark(y: .value("Min", goal.targetValue))
+                        .foregroundStyle(.green.opacity(0.6))
+                        .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
+                    
+                    // Max line
+                    RuleMark(y: .value("Max", rangeMax))
+                        .foregroundStyle(.orange.opacity(0.6))
+                        .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
+                }
+            }
+            .frame(height: 180)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: xAxisStride)) { value in
+                    if let date = value.as(Date.self) {
+                        AxisValueLabel {
+                            Text(date, format: .dateTime.month(.abbreviated).day())
+                                .font(.caption2)
+                        }
+                    }
+                }
+            }
+            .chartYAxis {
+                AxisMarks { value in
+                    AxisValueLabel {
+                        if let amount = value.as(Double.self) {
+                            Text(formatValue(amount))
+                                .font(.caption2)
+                        }
+                    }
+                }
+            }
+            
+            // Legend
+            HStack(spacing: 16) {
+                HStack(spacing: 4) {
+                    Rectangle()
+                        .fill(Color("BrandPrimary").opacity(0.2))
+                        .frame(width: 16, height: 12)
+                    Text("Daily")
+                        .font(.caption2)
+                        .foregroundStyle(Color("TextSecondary"))
+                }
+                
+                HStack(spacing: 4) {
+                    Rectangle()
+                        .fill(Color("BrandPrimary"))
+                        .frame(width: 16, height: 3)
+                    Text("7-Day Avg")
+                        .font(.caption2)
+                        .foregroundStyle(Color("TextSecondary"))
+                }
+                
+                if goal.goalType == .range {
+                    HStack(spacing: 4) {
+                        Rectangle()
+                            .fill(.green.opacity(0.6))
+                            .frame(width: 16, height: 2)
+                        Text("Target Range")
+                            .font(.caption2)
+                            .foregroundStyle(Color("TextSecondary"))
+                    }
+                } else {
+                    HStack(spacing: 4) {
+                        Rectangle()
+                            .fill(.green.opacity(0.6))
+                            .frame(width: 16, height: 2)
+                        Text("Goal")
+                            .font(.caption2)
+                            .foregroundStyle(Color("TextSecondary"))
+                    }
+                }
+            }
+            .padding(.top, 8)
+        }
+        .padding(16)
+        .background(Color("SurfaceCard"))
+        .cornerRadius(16)
+        .shadow(color: .black.opacity(0.05), radius: 8, y: 4)
+    }
+    
+    // MARK: - Computed Properties
+    
+    private var rollingAverageData: [(Date, Double)] {
+        guard dailyData.count >= 2 else { return dailyData }
+        
+        let sortedData = dailyData.sorted { $0.0 < $1.0 }
+        var result: [(Date, Double)] = []
+        
+        for i in 0..<sortedData.count {
+            // Calculate 7-day rolling average (or fewer days if not enough data)
+            let startIndex = max(0, i - 6)
+            let window = sortedData[startIndex...i]
+            let average = window.reduce(0.0) { $0 + $1.1 } / Double(window.count)
+            result.append((sortedData[i].0, average))
+        }
+        
+        return result
+    }
+    
+    private var overallAverage: Double {
+        guard !dailyData.isEmpty else { return 0 }
+        return dailyData.reduce(0.0) { $0 + $1.1 } / Double(dailyData.count)
+    }
+    
+    private var averageValueFormatted: String {
+        formatValue(overallAverage)
+    }
+    
+    private var weeklyAverageOnTarget: Bool {
+        guard !rollingAverageData.isEmpty else { return false }
+        
+        // Check the most recent 7-day average
+        let recentAverages = rollingAverageData.suffix(7)
+        guard let latestAverage = recentAverages.last?.1 else { return false }
+        
+        switch goal.goalType {
+        case .minimum:
+            return latestAverage >= goal.targetValue
+        case .maximum:
+            return latestAverage <= goal.targetValue
+        case .range:
+            let rangeMax = goal.rangeMax ?? goal.targetValue * 1.1
+            return latestAverage >= goal.targetValue && latestAverage <= rangeMax
+        }
+    }
+    
+    private var weeklyAverageStatusText: String {
+        let recentWindow = min(7, dailyData.count)
+        
+        if weeklyAverageOnTarget {
+            return "7-day rolling average on target"
+        } else {
+            switch goal.goalType {
+            case .minimum:
+                return "7-day average below target"
+            case .maximum:
+                return "7-day average above target"
+            case .range:
+                if overallAverage < goal.targetValue {
+                    return "7-day average below range"
+                } else {
+                    return "7-day average above range"
+                }
+            }
+        }
+    }
+    
+    private var goalDescription: String {
+        switch goal.goalType {
+        case .minimum:
+            return "At least \(Int(goal.targetValue)) \(nutrient.unit)"
+        case .maximum:
+            return "Under \(Int(goal.targetValue)) \(nutrient.unit)"
+        case .range:
+            let max = goal.rangeMax ?? goal.targetValue * 1.1
+            return "\(Int(goal.targetValue))-\(Int(max)) \(nutrient.unit)"
+        }
+    }
+    
+    
+    private var xAxisStride: Calendar.Component {
+        switch timeRange {
+        case .sevenDays:
+            return .day
+        case .thirtyDays:
+            return .weekOfYear
+        case .ninetyDays:
+            return .weekOfYear
+        }
+    }
+    
+    private func formatValue(_ value: Double) -> String {
+        // For calories, always show full number (no "k" abbreviation)
+        if nutrient == .calories {
+            return "\(Int(value))"
+        }
+        
+        // For other nutrients, use compact format
+        if value >= 1000 {
+            return String(format: "%.1fk", value / 1000)
+        } else if value >= 100 {
+            return "\(Int(value))"
+        } else if value >= 10 {
+            return String(format: "%.1f", value)
+        } else {
+            return String(format: "%.2f", value)
+        }
     }
 }
 

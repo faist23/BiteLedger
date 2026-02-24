@@ -9,13 +9,13 @@ import SwiftData
 @Model
 class UserPreferences {
     var pinnedNutrient: String? // Nutrient raw value for 5th dashboard slot
-    var trackedGoalNutrient: String? // Nutrient raw value for progress bar
     var goalsData: Data? // Encoded [String: NutrientGoal]
+    var showMacroBalanceTile: Bool? // Show macro balance tile on dashboard (nil = true)
     
-    init(pinnedNutrient: String? = nil, trackedGoalNutrient: String? = nil, goalsData: Data? = nil) {
+    init(pinnedNutrient: String? = nil, goalsData: Data? = nil, showMacroBalanceTile: Bool? = nil) {
         self.pinnedNutrient = pinnedNutrient
-        self.trackedGoalNutrient = trackedGoalNutrient
         self.goalsData = goalsData
+        self.showMacroBalanceTile = showMacroBalanceTile
     }
     
     // Helper computed property for goals
@@ -27,6 +27,11 @@ class UserPreferences {
         set {
             goalsData = try? JSONEncoder().encode(newValue)
         }
+    }
+    
+    // Get all nutrients that have goals set
+    var activeGoalNutrients: [Nutrient] {
+        goals.keys.compactMap { Nutrient(rawValue: $0) }
     }
 }
 

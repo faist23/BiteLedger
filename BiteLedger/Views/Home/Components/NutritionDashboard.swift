@@ -12,20 +12,28 @@ struct NutritionDashboard: View {
     
     var body: some View {
         VStack(spacing: 12) {
-            // Top row: Calories + Protein
+            // Top row: Calories + Macros (optional) + Protein
             HStack(spacing: 12) {
                 NutritionTile(
                     nutrient: .calories,
                     value: totalCalories,
                     goal: goalFor(.calories),
-                    showProgressBar: isTracked(.calories)
+                    showProgressBar: hasGoal(.calories)
                 )
+                
+                if showMacroBalance {
+                    MacroBalanceTile(
+                        proteinPercent: proteinPercent,
+                        carbsPercent: carbsPercent,
+                        fatPercent: fatPercent
+                    )
+                }
                 
                 NutritionTile(
                     nutrient: .protein,
                     value: totalProtein,
                     goal: goalFor(.protein),
-                    showProgressBar: isTracked(.protein)
+                    showProgressBar: hasGoal(.protein)
                 )
             }
             
@@ -35,14 +43,14 @@ struct NutritionDashboard: View {
                     nutrient: .carbs,
                     value: totalCarbs,
                     goal: goalFor(.carbs),
-                    showProgressBar: isTracked(.carbs)
+                    showProgressBar: hasGoal(.carbs)
                 )
                 
                 NutritionTile(
                     nutrient: .fat,
                     value: totalFat,
                     goal: goalFor(.fat),
-                    showProgressBar: isTracked(.fat)
+                    showProgressBar: hasGoal(.fat)
                 )
                 
                 if let pinnedNutrient = pinnedNutrient {
@@ -50,7 +58,7 @@ struct NutritionDashboard: View {
                         nutrient: pinnedNutrient,
                         value: valueFor(pinnedNutrient),
                         goal: goalFor(pinnedNutrient),
-                        showProgressBar: isTracked(pinnedNutrient)
+                        showProgressBar: hasGoal(pinnedNutrient)
                     )
                 }
             }
@@ -76,6 +84,27 @@ struct NutritionDashboard: View {
     
     private var totalFat: Double {
         logs.reduce(0) { $0 + $1.fat }
+    }
+    
+    // Macro percentages (for macro balance tile)
+    private var fatCalories: Double { totalFat * 9 }
+    private var carbCalories: Double { totalCarbs * 4 }
+    private var proteinCalories: Double { totalProtein * 4 }
+    
+    private var totalMacroCalories: Double {
+        fatCalories + carbCalories + proteinCalories
+    }
+    
+    private var fatPercent: Double {
+        totalMacroCalories == 0 ? 0 : fatCalories / totalMacroCalories
+    }
+    
+    private var carbsPercent: Double {
+        totalMacroCalories == 0 ? 0 : carbCalories / totalMacroCalories
+    }
+    
+    private var proteinPercent: Double {
+        totalMacroCalories == 0 ? 0 : proteinCalories / totalMacroCalories
     }
     
     private var pinnedNutrient: Nutrient? {
@@ -136,8 +165,56 @@ struct NutritionDashboard: View {
         return preferences.goals[nutrient.rawValue]
     }
     
-    private func isTracked(_ nutrient: Nutrient) -> Bool {
-        preferences?.trackedGoalNutrient == nutrient.rawValue
+    private func hasGoal(_ nutrient: Nutrient) -> Bool {
+        preferences?.goals[nutrient.rawValue] != nil
+    }
+    
+    private var showMacroBalance: Bool {
+        preferences?.showMacroBalanceTile ?? true
+    }
+}
+
+// MARK: - Macro Balance Tile
+
+struct MacroBalanceTile: View {
+    let proteinPercent: Double
+    let carbsPercent: Double
+    let fatPercent: Double
+    
+    var body: some View {
+        VStack(spacing: 5) {
+            // Macro percentages (no header - keeps tile compact)
+            VStack(alignment: .leading, spacing: 4) {
+                macroRow("Protein", proteinPercent, "MacroProtein")
+                macroRow("Carbs", carbsPercent, "MacroCarbs")
+                macroRow("Fat", fatPercent, "MacroFat")
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color("SurfaceCard"))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color("DividerSubtle"), lineWidth: 1)
+        )
+    }
+    
+    private func macroRow(_ name: String, _ percent: Double, _ color: String) -> some View {
+        HStack(spacing: 4) {
+            Text(name)
+                .font(.system(size: 13))
+                .foregroundStyle(Color(color))
+            
+            Spacer()
+            
+            Text("\(Int(percent * 100))%")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(color))
+        }
     }
 }
 

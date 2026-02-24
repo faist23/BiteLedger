@@ -19,15 +19,19 @@ struct SettingsView: View {
     @State private var showingExport = false
     @State private var showingDeleteConfirmation = false
     @State private var pinnedNutrient: Nutrient?
-    @State private var trackedGoalNutrient: Nutrient?
+    @State private var showMacroBalance: Bool = true
     @State private var goals: [String: NutrientGoal] = [:]
-    @State private var showingGoalEditor = false
     @State private var editingNutrient: Nutrient?
     
     var body: some View {
         NavigationStack {
             Form {
                 Section {
+                    Toggle("Show Macro Balance Tile", isOn: $showMacroBalance)
+                        .onChange(of: showMacroBalance) { _, _ in
+                            updatePreferences()
+                        }
+                    
                     Picker("Pin Nutrient to Dashboard", selection: $pinnedNutrient) {
                         Text("None").tag(nil as Nutrient?)
                         ForEach(Nutrient.pinnableNutrients) { nutrient in
@@ -40,62 +44,24 @@ struct SettingsView: View {
                 } header: {
                     Text("Dashboard")
                 } footer: {
-                    Text("Choose an additional nutrient to display on the dashboard (5th tile). Calories, Protein, Carbs, and Fat are always shown.")
+                    Text("The macro balance tile shows your protein/carbs/fat breakdown. Choose an additional nutrient for the 5th tile.")
                 }
                 
                 Section {
-                    Picker("Track Goal For", selection: $trackedGoalNutrient) {
-                        Text("None").tag(nil as Nutrient?)
-                        ForEach(Nutrient.allCases) { nutrient in
-                            Text(nutrient.rawValue).tag(nutrient as Nutrient?)
-                        }
-                    }
-                    .onChange(of: trackedGoalNutrient) { _, _ in
-                        updatePreferences()
-                    }
+                    // Always show Big 4
+                    GoalRow(nutrient: .calories, goals: $goals, onUpdate: updatePreferences)
+                    GoalRow(nutrient: .protein, goals: $goals, onUpdate: updatePreferences)
+                    GoalRow(nutrient: .carbs, goals: $goals, onUpdate: updatePreferences)
+                    GoalRow(nutrient: .fat, goals: $goals, onUpdate: updatePreferences)
                     
-                    if let tracked = trackedGoalNutrient {
-                        if let goal = goals[tracked.rawValue] {
-                            NavigationLink {
-                                GoalEditorView(
-                                    nutrient: tracked,
-                                    goal: goal,
-                                    onSave: { newGoal in
-                                        goals[tracked.rawValue] = newGoal
-                                        updatePreferences()
-                                    },
-                                    onDelete: {
-                                        goals.removeValue(forKey: tracked.rawValue)
-                                        if trackedGoalNutrient?.rawValue == tracked.rawValue {
-                                            trackedGoalNutrient = nil
-                                        }
-                                        updatePreferences()
-                                    }
-                                )
-                            } label: {
-                                HStack {
-                                    Text("\(tracked.rawValue) Goal")
-                                    Spacer()
-                                    Text("\(Int(goal.targetValue)) \(tracked.unit)")
-                                        .foregroundStyle(Color("TextSecondary"))
-                                }
-                            }
-                        } else {
-                            Button("Set \(tracked.rawValue) Goal") {
-                                let defaultGoal = NutrientGoal(
-                                    targetValue: defaultGoalValue(for: tracked),
-                                    goalType: tracked.defaultGoalType,
-                                    rangeMax: nil
-                                )
-                                goals[tracked.rawValue] = defaultGoal
-                                updatePreferences()
-                            }
-                        }
+                    // Show 5th slot if nutrient is pinned
+                    if let pinned = pinnedNutrient {
+                        GoalRow(nutrient: pinned, goals: $goals, onUpdate: updatePreferences)
                     }
                 } header: {
                     Text("Goals")
                 } footer: {
-                    Text("Set a goal for one nutrient to show a progress bar on the dashboard.")
+                    Text("Set goals for any nutrients on your dashboard. Progress bars will appear automatically.")
                 }
                 
                 Section {
@@ -164,7 +130,7 @@ struct SettingsView: View {
     private func loadPreferences() {
         if let prefs = preferences.first {
             pinnedNutrient = prefs.pinnedNutrient.flatMap { Nutrient(rawValue: $0) }
-            trackedGoalNutrient = prefs.trackedGoalNutrient.flatMap { Nutrient(rawValue: $0) }
+            showMacroBalance = prefs.showMacroBalanceTile ?? true // Default to true if nil
             goals = prefs.goals
         } else {
             // Create default preferences
@@ -177,13 +143,13 @@ struct SettingsView: View {
     private func updatePreferences() {
         if let prefs = preferences.first {
             prefs.pinnedNutrient = pinnedNutrient?.rawValue
-            prefs.trackedGoalNutrient = trackedGoalNutrient?.rawValue
+            prefs.showMacroBalanceTile = showMacroBalance
             prefs.goals = goals
             try? modelContext.save()
         } else {
             let newPrefs = UserPreferences(
                 pinnedNutrient: pinnedNutrient?.rawValue,
-                trackedGoalNutrient: trackedGoalNutrient?.rawValue
+                showMacroBalanceTile: showMacroBalance
             )
             newPrefs.goals = goals
             modelContext.insert(newPrefs)
@@ -227,3 +193,108 @@ struct SettingsView: View {
         try? modelContext.save()
     }
 }
+// MARK: - Goal Row Component
+
+struct GoalRow: View {
+    let nutrient: Nutrient
+    @Binding var goals: [String: NutrientGoal]
+    let onUpdate: () -> Void
+    
+    @State private var showingEditor = false
+    
+    private var hasGoal: Bool {
+        goals[nutrient.rawValue] != nil
+    }
+    
+    var body: some View {
+        if hasGoal, let goal = goals[nutrient.rawValue] {
+            Button {
+                showingEditor = true
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(nutrient.rawValue)
+                            .foregroundStyle(.primary)
+                        Text(goalDescription(for: goal))
+                            .font(.caption)
+                            .foregroundStyle(Color("TextSecondary"))
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(Color("TextTertiary"))
+                }
+            }
+            .sheet(isPresented: $showingEditor) {
+                NavigationStack {
+                    GoalEditorView(
+                        nutrient: nutrient,
+                        goal: goal,
+                        onSave: { newGoal in
+                            goals[nutrient.rawValue] = newGoal
+                            onUpdate()
+                        },
+                        onDelete: {
+                            goals.removeValue(forKey: nutrient.rawValue)
+                            onUpdate()
+                        }
+                    )
+                }
+            }
+        } else {
+            Button {
+                let defaultValue = defaultGoalValue(for: nutrient)
+                let defaultGoal = NutrientGoal(
+                    targetValue: defaultValue,
+                    goalType: nutrient.defaultGoalType,
+                    rangeMax: (nutrient.defaultGoalType == .range) ? defaultValue * 1.1 : nil
+                )
+                goals[nutrient.rawValue] = defaultGoal
+                onUpdate()
+            } label: {
+                HStack {
+                    Text(nutrient.rawValue)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text("Set Goal")
+                        .font(.subheadline)
+                        .foregroundStyle(Color("BrandAccent"))
+                }
+            }
+        }
+    }
+    
+    private func goalDescription(for goal: NutrientGoal) -> String {
+        switch goal.goalType {
+        case .minimum:
+            return "At least \(Int(goal.targetValue)) \(nutrient.unit)"
+        case .maximum:
+            return "Under \(Int(goal.targetValue)) \(nutrient.unit)"
+        case .range:
+            let max = goal.rangeMax ?? goal.targetValue * 1.1
+            return "\(Int(goal.targetValue))-\(Int(max)) \(nutrient.unit)"
+        }
+    }
+    
+    private func defaultGoalValue(for nutrient: Nutrient) -> Double {
+        switch nutrient {
+        case .calories: return 2000
+        case .protein: return 150
+        case .carbs: return 250
+        case .fat: return 65
+        case .fiber: return 30
+        case .sugar: return 50
+        case .sodium: return 2300
+        case .saturatedFat: return 20
+        case .cholesterol: return 300
+        case .potassium: return 3500
+        case .calcium: return 1000
+        case .iron: return 18
+        case .vitaminC: return 90
+        case .vitaminD: return 20
+        case .caffeine: return 400
+        default: return 100
+        }
+    }
+}
+
