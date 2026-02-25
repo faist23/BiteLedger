@@ -81,6 +81,7 @@ struct SwipeableYesterdayRow: View {
     let onAdd: () -> Void
     
     @State private var offset: CGFloat = 0
+    private let addThreshold: CGFloat = 120  // Swipe past this to auto-add
     
     var body: some View {
         ZStack(alignment: .leading) {
@@ -140,7 +141,8 @@ struct SwipeableYesterdayRow: View {
                         
                         if horizontalAmount > verticalAmount {
                             if value.translation.width > 0 {
-                                offset = min(value.translation.width, 80)
+                                // Allow swiping past the threshold for auto-add
+                                offset = min(value.translation.width, addThreshold + 20)
                             } else if offset > 0 {
                                 offset = max(0, offset + value.translation.width)
                             }
@@ -152,11 +154,22 @@ struct SwipeableYesterdayRow: View {
                         
                         // Only snap if it was a horizontal swipe
                         if horizontalAmount > verticalAmount {
-                            if offset > 40 {
+                            if offset >= addThreshold {
+                                // Swiped far enough - auto-add!
+                                onAdd()
+                                // Delay resetting offset so user sees the action happened
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    withAnimation {
+                                        offset = 0
+                                    }
+                                }
+                            } else if offset > 40 {
+                                // Show the add button
                                 withAnimation {
                                     offset = 80
                                 }
                             } else {
+                                // Reset to closed
                                 withAnimation {
                                     offset = 0
                                 }
