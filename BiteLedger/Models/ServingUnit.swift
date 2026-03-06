@@ -37,6 +37,16 @@ enum ServingUnit: String, CaseIterable, Identifiable {
         }
     }
     
+    /// Convert from abbreviation string to ServingUnit
+    static func fromAbbreviation(_ abbr: String) -> ServingUnit? {
+        // Handle special case for "portion" which maps to portions
+        if abbr == "portion" {
+            return nil  // Portions are handled separately via selectedPortionId
+        }
+        
+        return ServingUnit.allCases.first { $0.abbreviation == abbr }
+    }
+    
     /// Convert this unit to grams (approximate for volume units)
     func toGrams(amount: Double, density: Double = 1.0) -> Double {
         switch self {

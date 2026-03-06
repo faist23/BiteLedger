@@ -19,6 +19,8 @@ struct TodayView: View {
     @State private var selectedDate = Date()
     @State private var showingDatePicker = false
     @State private var currentStreak = 0
+    @State private var yesterdayLogs: [FoodLog] = []
+    @State private var hasLoadedStreak = false
 
     // MARK: - Computed
 
@@ -28,8 +30,8 @@ struct TodayView: View {
 
     private func caloriesFor(meal: MealType) -> Double {
         todayLogs
-            .filter { $0.meal == meal }
-            .reduce(0) { $0 + $1.calories }
+            .filter { $0.mealType == meal }
+            .reduce(into: 0) { $0 += $1.caloriesAtLogTime }
     }
 
     // MARK: - Body
@@ -81,7 +83,10 @@ struct TodayView: View {
             )
             .onAppear {
                 loadLogsForSelectedDate()
-                loadStreak()
+                if !hasLoadedStreak {
+                    loadStreak()
+                    hasLoadedStreak = true
+                }
                 loadPreferences()
             }
         }
@@ -103,17 +108,13 @@ struct TodayView: View {
                     modelContext.insert(addedItem.foodItem)
                     try? modelContext.save()
                 }
-                
-                // Update the lastUsed date for this food item
-                addedItem.foodItem.lastUsed = timestamp
 
-                let foodLog = FoodLog(
-                    foodItem: addedItem.foodItem,
-                    timestamp: timestamp,
-                    meal: meal,
-                    servingMultiplier: addedItem.servings,
-                    totalGrams: addedItem.totalGrams,
-                    selectedPortionId: addedItem.selectedPortionId
+                let foodLog = FoodLog.create(
+                    mealType: meal,
+                    quantity: addedItem.quantity,
+                    food: addedItem.foodItem,
+                    serving: addedItem.servingSize,
+                    timestamp: timestamp
                 )
 
                 modelContext.insert(foodLog)
@@ -124,8 +125,8 @@ struct TodayView: View {
         .sheet(item: $editingLog) { log in
             if let foodItem = log.foodItem {
                 FoodLogEditView(log: log, foodItem: foodItem) { updatedLog in
-                    log.servingMultiplier = updatedLog.servingMultiplier
-                    log.totalGrams = updatedLog.totalGrams
+                    log.quantity = updatedLog.quantity
+                    log.servingSize = updatedLog.servingSize
                     try? modelContext.save()
                     loadLogsForSelectedDate()
                 }
@@ -137,7 +138,7 @@ struct TodayView: View {
         .sheet(item: $showingMealNutrition) { meal in
             DetailedNutritionView(
                 title: "\(meal.rawValue) Nutrition",
-                logs: todayLogs.filter { $0.meal == meal },
+                logs: todayLogs.filter { $0.mealType == meal },
                 preferences: preferences
             )
         }
@@ -179,20 +180,36 @@ struct TodayView: View {
         let calendar = Calendar.current
         let startOfDay = calendar.startOfDay(for: selectedDate)
         let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
-        
-        let descriptor = FetchDescriptor<FoodLog>(
+        let startOfYesterday = calendar.date(byAdding: .day, value: -1, to: startOfDay)!
+
+        let todayDescriptor = FetchDescriptor<FoodLog>(
             predicate: #Predicate { log in
                 log.timestamp >= startOfDay && log.timestamp < endOfDay
             },
             sortBy: [SortDescriptor(\FoodLog.timestamp, order: .reverse)]
         )
-        
+
+        let yesterdayDescriptor = FetchDescriptor<FoodLog>(
+            predicate: #Predicate { log in
+                log.timestamp >= startOfYesterday && log.timestamp < startOfDay
+            }
+        )
+
         do {
-            logs = try modelContext.fetch(descriptor)
+            logs = try modelContext.fetch(todayDescriptor)
+            yesterdayLogs = try modelContext.fetch(yesterdayDescriptor)
         } catch {
-            print("Error fetching logs: \(error)")
             logs = []
+            yesterdayLogs = []
         }
+    }
+
+    private func hasYesterdayMeal(_ meal: MealType) -> Bool {
+        yesterdayLogs.contains { $0.mealType == meal }
+    }
+
+    private func yesterdayCalories(for meal: MealType) -> Double {
+        yesterdayLogs.filter { $0.mealType == meal }.reduce(0) { $0 + $1.caloriesAtLogTime }
     }
     
     private func loadStreak() {
@@ -261,7 +278,7 @@ struct TodayView: View {
         
         do {
             let allYesterdayLogs = try modelContext.fetch(descriptor)
-            let yesterdayLogs = allYesterdayLogs.filter { $0.meal == meal }
+            let yesterdayLogs = allYesterdayLogs.filter { $0.mealType == meal }
             
             for oldLog in yesterdayLogs {
                 guard let foodItem = oldLog.foodItem else { continue }
@@ -275,14 +292,45 @@ struct TodayView: View {
                     timestamp = Calendar.current.date(from: components) ?? selectedDate
                 }
                 
-                let newLog = FoodLog(
-                    foodItem: foodItem,
-                    timestamp: timestamp,
-                    meal: meal,
-                    servingMultiplier: oldLog.servingMultiplier,
-                    totalGrams: oldLog.totalGrams,
-                    selectedPortionId: oldLog.selectedPortionId
+                guard let servingSize = oldLog.servingSize else { continue }
+                
+                // Create new log with same serving size and quantity
+                let newLog = FoodLog.create(
+                    mealType: meal,
+                    quantity: oldLog.quantity,
+                    food: foodItem,
+                    serving: servingSize,
+                    timestamp: timestamp
                 )
+                
+                // Override with cached nutrition from original log to preserve exact values
+                newLog.caloriesAtLogTime = oldLog.caloriesAtLogTime
+                newLog.proteinAtLogTime = oldLog.proteinAtLogTime
+                newLog.carbsAtLogTime = oldLog.carbsAtLogTime
+                newLog.fatAtLogTime = oldLog.fatAtLogTime
+                newLog.fiberAtLogTime = oldLog.fiberAtLogTime
+                newLog.sugarAtLogTime = oldLog.sugarAtLogTime
+                newLog.sodiumAtLogTime = oldLog.sodiumAtLogTime
+                newLog.saturatedFatAtLogTime = oldLog.saturatedFatAtLogTime
+                newLog.transFatAtLogTime = oldLog.transFatAtLogTime
+                newLog.monounsaturatedFatAtLogTime = oldLog.monounsaturatedFatAtLogTime
+                newLog.polyunsaturatedFatAtLogTime = oldLog.polyunsaturatedFatAtLogTime
+                newLog.cholesterolAtLogTime = oldLog.cholesterolAtLogTime
+                newLog.magnesiumAtLogTime = oldLog.magnesiumAtLogTime
+                newLog.zincAtLogTime = oldLog.zincAtLogTime
+                newLog.vitaminAAtLogTime = oldLog.vitaminAAtLogTime
+                newLog.vitaminCAtLogTime = oldLog.vitaminCAtLogTime
+                newLog.vitaminDAtLogTime = oldLog.vitaminDAtLogTime
+                newLog.vitaminEAtLogTime = oldLog.vitaminEAtLogTime
+                newLog.vitaminKAtLogTime = oldLog.vitaminKAtLogTime
+                newLog.vitaminB6AtLogTime = oldLog.vitaminB6AtLogTime
+                newLog.vitaminB12AtLogTime = oldLog.vitaminB12AtLogTime
+                newLog.folateAtLogTime = oldLog.folateAtLogTime
+                newLog.cholineAtLogTime = oldLog.cholineAtLogTime
+                newLog.calciumAtLogTime = oldLog.calciumAtLogTime
+                newLog.ironAtLogTime = oldLog.ironAtLogTime
+                newLog.potassiumAtLogTime = oldLog.potassiumAtLogTime
+                newLog.caffeineAtLogTime = oldLog.caffeineAtLogTime
                 
                 modelContext.insert(newLog)
             }
@@ -360,9 +408,11 @@ struct TodayView: View {
             ForEach(MealType.allCases, id: \.self) { meal in
                 MealDiarySection(
                     meal: meal,
-                    logs: todayLogs.filter { $0.meal == meal },
+                    logs: todayLogs.filter { $0.mealType == meal },
                     calories: caloriesFor(meal: meal),
                     selectedDate: selectedDate,
+                    hasYesterdayMeal: hasYesterdayMeal(meal),
+                    yesterdayCalories: yesterdayCalories(for: meal),
                     onAddFood: { selectedMeal = meal },
                     onEditLog: { editingLog = $0 },
                     onDeleteLog: { log in
@@ -371,7 +421,7 @@ struct TodayView: View {
                         loadLogsForSelectedDate()
                     },
                     onTapMeal: {
-                        if !todayLogs.filter({ $0.meal == meal }).isEmpty {
+                        if !todayLogs.filter({ $0.mealType == meal }).isEmpty {
                             showingMealNutrition = meal
                         }
                     },

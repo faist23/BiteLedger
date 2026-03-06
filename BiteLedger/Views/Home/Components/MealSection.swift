@@ -14,7 +14,7 @@ struct MealSection: View {
     let logs: [FoodLog]
     
     private var totalCalories: Double {
-        logs.reduce(0) { $0 + $1.calories }
+        logs.reduce(0) { $0 + $1.caloriesAtLogTime }
     }
     
     var body: some View {
@@ -58,14 +58,14 @@ struct FoodLogRow: View {
                 Text(log.foodItem?.name ?? "Unknown Food")
                     .font(.subheadline)
                 
-                Text("\(log.servingMultiplier.formatted(.number.precision(.fractionLength(0...1)))) × \(log.foodItem?.servingDescription ?? "")")
+                Text(log.quantityDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             
             Spacer()
             
-            Text("\(Int(log.calories)) cal")
+            Text("\(Int(log.caloriesAtLogTime)) cal")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }

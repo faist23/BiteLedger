@@ -5,231 +5,199 @@
 //  Created by Craig Faist on 2/16/26.
 //
 
-
 import SwiftData
 import Foundation
 
+// MARK: - NutritionMode
+
+enum NutritionMode: String, Codable {
+    /// Nutrition values stored per 100g. Used for packaged foods, USDA whole foods.
+    /// ServingSizes must have gramWeight to calculate correctly.
+    case per100g
+
+    /// Nutrition values stored per 1 default serving. Used for manual entry,
+    /// recipes, FatSecret no-gram items, and LoseIt imports.
+    case perServing
+}
+
+// MARK: - MealType
+
+enum MealType: String, Codable, CaseIterable, Identifiable {
+    case breakfast = "Breakfast"
+    case lunch     = "Lunch"
+    case dinner    = "Dinner"
+    case snack     = "Snack"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .breakfast: return "sunrise"
+        case .lunch:     return "sun.max"
+        case .dinner:    return "moon"
+        case .snack:     return "leaf"
+        }
+    }
+}
+
+// MARK: - FoodItem
+
 @Model
 final class FoodItem {
+
+    // MARK: Identity
     var id: UUID
-    var barcode: String?
     var name: String
     var brand: String?
-    
-    // Nutrition per 100g (always stored this way for consistency)
-    var caloriesPer100g: Double
-    var proteinPer100g: Double
-    var carbsPer100g: Double
-    var fatPer100g: Double
-    
-    // Optional micronutrients
-    var fiberPer100g: Double?
-    var sugarPer100g: Double?
-    var sodiumPer100g: Double?
-    var saturatedFatPer100g: Double?
-    var transFatPer100g: Double?
-    var monounsaturatedFatPer100g: Double?
-    var polyunsaturatedFatPer100g: Double?
-    var cholesterolPer100g: Double?
-    
-    // Additional minerals
-    var magnesiumPer100g: Double?
-    var zincPer100g: Double?
-    
-    // Vitamins
-    var vitaminAPer100g: Double?
-    var vitaminCPer100g: Double?
-    var vitaminDPer100g: Double?
-    var vitaminEPer100g: Double?
-    var vitaminKPer100g: Double?
-    var vitaminB6Per100g: Double?
-    var vitaminB12Per100g: Double?
-    var folatePer100g: Double?
-    var cholinePer100g: Double?
-    
-    // Minerals
-    var calciumPer100g: Double?
-    var ironPer100g: Double?
-    var potassiumPer100g: Double?
-    
-    // Special tracking
-    var caffeinePer100g: Double?
-    
-    // Serving size information
-    var servingDescription: String  // "1 cup" or "100g"
-    var gramsPerServing: Double     // 240 or 100
-    var servingSizeIsEstimated: Bool
-    
-    // Volume conversions (if available)
-    var volumeConversionsData: Data?  // Encoded [VolumeConversion]
-    
-    // USDA portion sizes (if available)
-    var portionsData: Data?  // Encoded [StoredPortion]
-    
-    // Metadata
+    var barcode: String?
+
+    /// Where this food came from.
+    /// Values: "OpenFoodFacts" | "USDA" | "FatSecret" | "Manual Entry" | "CSV Import"
+    var source: String
+
     var dateAdded: Date
-    var lastUsed: Date?
-    var source: String  // "OpenFoodFacts", "USDA", "Manual"
-    var imageURL: String?
-    
+
+    // MARK: Nutrition Mode
+    /// Determines how nutrition values are interpreted.
+    /// .per100g  → calories/protein/etc are per 100 grams
+    /// .perServing → calories/protein/etc are per 1 default serving
+    var nutritionMode: NutritionMode
+
+    // MARK: Nutrition Values
+    // Interpretation depends on nutritionMode (see above).
+    // All values use standard units:
+    //   calories → kcal
+    //   protein, carbs, fat, fiber, sugar, saturatedFat, transFat → grams
+    //   sodium, cholesterol, potassium, calcium, iron → milligrams
+    //   vitaminA, vitaminC, vitaminD, vitaminB6, vitaminB12, folate → micrograms or mg per label convention
+    //   caffeine → milligrams
+
+    var calories: Double
+    var protein: Double
+    var carbs: Double
+    var fat: Double
+
+    // Optional macros
+    var fiber: Double?
+    var sugar: Double?
+    var saturatedFat: Double?
+    var transFat: Double?
+    var polyunsaturatedFat: Double?
+    var monounsaturatedFat: Double?
+
+    // Optional minerals (mg)
+    var sodium: Double?
+    var cholesterol: Double?
+    var potassium: Double?
+    var calcium: Double?
+    var iron: Double?
+    var magnesium: Double?
+    var zinc: Double?
+
+    // Optional vitamins
+    var vitaminA: Double?
+    var vitaminC: Double?
+    var vitaminD: Double?
+    var vitaminE: Double?
+    var vitaminK: Double?
+    var vitaminB6: Double?
+    var vitaminB12: Double?
+    var folate: Double?
+    var choline: Double?
+
+    // Optional other
+    var caffeine: Double?
+
+    // MARK: Relationships
+    @Relationship(deleteRule: .cascade) var servingSizes: [ServingSize] = []
+    @Relationship(deleteRule: .nullify) var foodLogs: [FoodLog] = []
+
+    // MARK: Init
     init(
-        barcode: String? = nil,
+        id: UUID = UUID(),
         name: String,
         brand: String? = nil,
-        caloriesPer100g: Double,
-        proteinPer100g: Double,
-        carbsPer100g: Double,
-        fatPer100g: Double,
-        fiberPer100g: Double? = nil,
-        sugarPer100g: Double? = nil,
-        sodiumPer100g: Double? = nil,
-        saturatedFatPer100g: Double? = nil,
-        transFatPer100g: Double? = nil,
-        monounsaturatedFatPer100g: Double? = nil,
-        polyunsaturatedFatPer100g: Double? = nil,
-        cholesterolPer100g: Double? = nil,
-        magnesiumPer100g: Double? = nil,
-        zincPer100g: Double? = nil,
-        vitaminAPer100g: Double? = nil,
-        vitaminCPer100g: Double? = nil,
-        vitaminDPer100g: Double? = nil,
-        vitaminEPer100g: Double? = nil,
-        vitaminKPer100g: Double? = nil,
-        vitaminB6Per100g: Double? = nil,
-        vitaminB12Per100g: Double? = nil,
-        folatePer100g: Double? = nil,
-        cholinePer100g: Double? = nil,
-        calciumPer100g: Double? = nil,
-        ironPer100g: Double? = nil,
-        potassiumPer100g: Double? = nil,
-        caffeinePer100g: Double? = nil,
-        servingDescription: String = "100g",
-        gramsPerServing: Double = 100,
-        servingSizeIsEstimated: Bool = true,
-        source: String = "Manual",
-        imageURL: String? = nil
+        barcode: String? = nil,
+        source: String,
+        dateAdded: Date = Date(),
+        nutritionMode: NutritionMode,
+        calories: Double,
+        protein: Double,
+        carbs: Double,
+        fat: Double,
+        fiber: Double? = nil,
+        sugar: Double? = nil,
+        saturatedFat: Double? = nil,
+        transFat: Double? = nil,
+        polyunsaturatedFat: Double? = nil,
+        monounsaturatedFat: Double? = nil,
+        sodium: Double? = nil,
+        cholesterol: Double? = nil,
+        potassium: Double? = nil,
+        calcium: Double? = nil,
+        iron: Double? = nil,
+        magnesium: Double? = nil,
+        zinc: Double? = nil,
+        vitaminA: Double? = nil,
+        vitaminC: Double? = nil,
+        vitaminD: Double? = nil,
+        vitaminE: Double? = nil,
+        vitaminK: Double? = nil,
+        vitaminB6: Double? = nil,
+        vitaminB12: Double? = nil,
+        folate: Double? = nil,
+        choline: Double? = nil,
+        caffeine: Double? = nil
     ) {
-        self.id = UUID()
-        self.barcode = barcode
+        self.id = id
         self.name = name
         self.brand = brand
-        self.caloriesPer100g = caloriesPer100g
-        self.proteinPer100g = proteinPer100g
-        self.carbsPer100g = carbsPer100g
-        self.fatPer100g = fatPer100g
-        self.fiberPer100g = fiberPer100g
-        self.sugarPer100g = sugarPer100g
-        self.sodiumPer100g = sodiumPer100g
-        self.saturatedFatPer100g = saturatedFatPer100g
-        self.transFatPer100g = transFatPer100g
-        self.monounsaturatedFatPer100g = monounsaturatedFatPer100g
-        self.polyunsaturatedFatPer100g = polyunsaturatedFatPer100g
-        self.cholesterolPer100g = cholesterolPer100g
-        self.magnesiumPer100g = magnesiumPer100g
-        self.zincPer100g = zincPer100g
-        self.vitaminAPer100g = vitaminAPer100g
-        self.vitaminCPer100g = vitaminCPer100g
-        self.vitaminDPer100g = vitaminDPer100g
-        self.vitaminEPer100g = vitaminEPer100g
-        self.vitaminKPer100g = vitaminKPer100g
-        self.vitaminB6Per100g = vitaminB6Per100g
-        self.vitaminB12Per100g = vitaminB12Per100g
-        self.folatePer100g = folatePer100g
-        self.cholinePer100g = cholinePer100g
-        self.calciumPer100g = calciumPer100g
-        self.ironPer100g = ironPer100g
-        self.potassiumPer100g = potassiumPer100g
-        self.caffeinePer100g = caffeinePer100g
-        self.servingDescription = servingDescription
-        self.gramsPerServing = gramsPerServing
-        self.servingSizeIsEstimated = servingSizeIsEstimated
-        self.dateAdded = Date()
+        self.barcode = barcode
         self.source = source
-        self.imageURL = imageURL
+        self.dateAdded = dateAdded
+        self.nutritionMode = nutritionMode
+        self.calories = calories
+        self.protein = protein
+        self.carbs = carbs
+        self.fat = fat
+        self.fiber = fiber
+        self.sugar = sugar
+        self.saturatedFat = saturatedFat
+        self.transFat = transFat
+        self.polyunsaturatedFat = polyunsaturatedFat
+        self.monounsaturatedFat = monounsaturatedFat
+        self.sodium = sodium
+        self.cholesterol = cholesterol
+        self.potassium = potassium
+        self.calcium = calcium
+        self.iron = iron
+        self.magnesium = magnesium
+        self.zinc = zinc
+        self.vitaminA = vitaminA
+        self.vitaminC = vitaminC
+        self.vitaminD = vitaminD
+        self.vitaminE = vitaminE
+        self.vitaminK = vitaminK
+        self.vitaminB6 = vitaminB6
+        self.vitaminB12 = vitaminB12
+        self.folate = folate
+        self.choline = choline
+        self.caffeine = caffeine
     }
-    
-    /// Convenience initializer from NutritionFacts
-    convenience init(
-        name: String,
-        brand: String? = nil,
-        barcode: String? = nil,
-        nutritionPer100g: NutritionFacts,
-        servingSize: Double = 100,
-        servingSizeUnit: String = "g",
-        source: String = "OpenFoodFacts",
-        imageURL: String? = nil
-    ) {
-        self.init(
-            barcode: barcode,
-            name: name,
-            brand: brand,
-            caloriesPer100g: nutritionPer100g.caloriesPer100g,
-            proteinPer100g: nutritionPer100g.proteinPer100g,
-            carbsPer100g: nutritionPer100g.carbsPer100g,
-            fatPer100g: nutritionPer100g.fatPer100g,
-            fiberPer100g: nutritionPer100g.fiberPer100g,
-            sugarPer100g: nutritionPer100g.sugarPer100g,
-            sodiumPer100g: nutritionPer100g.sodiumPer100g,
-            saturatedFatPer100g: nutritionPer100g.saturatedFatPer100g,
-            transFatPer100g: nutritionPer100g.transFatPer100g,
-            monounsaturatedFatPer100g: nutritionPer100g.monounsaturatedFatPer100g,
-            polyunsaturatedFatPer100g: nutritionPer100g.polyunsaturatedFatPer100g,
-            cholesterolPer100g: nutritionPer100g.cholesterolPer100g,
-            magnesiumPer100g: nutritionPer100g.magnesiumPer100g,
-            zincPer100g: nutritionPer100g.zincPer100g,
-            vitaminAPer100g: nutritionPer100g.vitaminAPer100g,
-            vitaminCPer100g: nutritionPer100g.vitaminCPer100g,
-            vitaminDPer100g: nutritionPer100g.vitaminDPer100g,
-            vitaminEPer100g: nutritionPer100g.vitaminEPer100g,
-            vitaminKPer100g: nutritionPer100g.vitaminKPer100g,
-            vitaminB6Per100g: nutritionPer100g.vitaminB6Per100g,
-            vitaminB12Per100g: nutritionPer100g.vitaminB12Per100g,
-            folatePer100g: nutritionPer100g.folatePer100g,
-            cholinePer100g: nutritionPer100g.cholinePer100g,
-            calciumPer100g: nutritionPer100g.calciumPer100g,
-            ironPer100g: nutritionPer100g.ironPer100g,
-            potassiumPer100g: nutritionPer100g.potassiumPer100g,
-            caffeinePer100g: nutritionPer100g.caffeinePer100g,
-            servingDescription: "\(servingSize)\(servingSizeUnit)",
-            gramsPerServing: servingSize,
-            servingSizeIsEstimated: false,
-            source: source,
-            imageURL: imageURL
-        )
+
+    // MARK: Computed Helpers
+
+    /// The default serving size for display in pickers and search results.
+    var defaultServing: ServingSize? {
+        servingSizes.first(where: { $0.isDefault })
+            ?? servingSizes.min(by: { $0.sortOrder < $1.sortOrder })
     }
-}
 
-// Helper for volume conversions
-struct VolumeConversion: Codable {
-    let unit: String  // "cup", "tbsp", etc
-    let gramsPerUnit: Double
-    let source: String  // "productLabel", "genericEstimate", "userDefined"
-}
-
-// Helper for storing USDA portions
-struct StoredPortion: Codable, Identifiable, Hashable {
-    let id: Int
-    let amount: Double
-    let modifier: String
-    let gramWeight: Double
-    
+    /// Display name including brand if available.
     var displayName: String {
-        if amount == 1.0 {
-            return modifier
+        if let brand, !brand.isEmpty {
+            return "\(name) · \(brand)"
         }
-        return "\(amount) \(modifier)"
-    }
-}
-
-// Extension to work with portions
-extension FoodItem {
-    var portions: [StoredPortion]? {
-        get {
-            guard let data = portionsData else { return nil }
-            return try? JSONDecoder().decode([StoredPortion].self, from: data)
-        }
-        set {
-            portionsData = try? JSONEncoder().encode(newValue)
-        }
+        return name
     }
 }

@@ -20,7 +20,7 @@ struct MealItemSelectionView: View {
     
     private var totalCalories: Double {
         sourceLogs.filter { selectedLogs.contains($0.id) }
-            .reduce(0) { $0 + $1.calories }
+            .reduce(into: 0) { $0 += $1.caloriesAtLogTime }
     }
     
     private var selectedCount: Int {
@@ -46,33 +46,21 @@ struct MealItemSelectionView: View {
                                     .font(.title2)
                                     .foregroundStyle(selectedLogs.contains(log.id) ? .orange : .gray)
                                 
-                                // Food icon/image
-                                if let imageUrl = foodItem.imageURL, let url = URL(string: imageUrl) {
-                                    AsyncImage(url: url) { image in
-                                        image
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                    } placeholder: {
-                                        Color.gray.opacity(0.2)
-                                    }
+                                // Food icon placeholder
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(.quaternary)
                                     .frame(width: 40, height: 40)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                                } else {
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(.quaternary)
-                                        .frame(width: 40, height: 40)
-                                        .overlay {
-                                            Image(systemName: "fork.knife")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                }
+                                    .overlay {
+                                        Image(systemName: "fork.knife")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 
                                 // Food info
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(foodItem.name)
                                         .font(.subheadline)
-                                    Text(log.servingDisplayText)
+                                    Text(log.quantityDescription)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -80,7 +68,7 @@ struct MealItemSelectionView: View {
                                 Spacer()
                                 
                                 // Calories
-                                Text("\(Int(log.calories))")
+                                Text("\(Int(log.caloriesAtLogTime))")
                                     .font(.subheadline)
                                     .fontWeight(.medium)
                             }

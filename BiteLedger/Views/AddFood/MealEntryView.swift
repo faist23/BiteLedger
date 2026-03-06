@@ -137,17 +137,16 @@ struct MealEntryView: View {
     private func saveMeal() {
         for item in addedItems {
             // Insert FoodItem first to ensure portions are persisted
-            item.foodItem.lastUsed = Date()
             modelContext.insert(item.foodItem)
             try? modelContext.save()
 
-            let foodLog = FoodLog(
-                foodItem: item.foodItem,
-                timestamp: Date(),
-                meal: selectedMeal,
-                servingMultiplier: item.servings,
-                totalGrams: item.totalGrams,
-                selectedPortionId: item.selectedPortionId
+            // Create FoodLog using factory method
+            let foodLog = FoodLog.create(
+                mealType: selectedMeal,
+                quantity: item.quantity,
+                food: item.foodItem,
+                serving: item.servingSize,
+                timestamp: Date()
             )
             modelContext.insert(foodLog)
         }
@@ -173,7 +172,7 @@ struct AddedItemRow: View {
                 Text(item.foodItem.name)
                     .font(.headline)
                 
-                Text("\(item.servings, specifier: "%.1f") × \(item.foodItem.servingDescription)")
+                Text("\(item.quantity, format: .number.precision(.fractionLength(1))) × \(item.servingSize.label)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -229,24 +228,32 @@ struct NutrientPill: View {
 struct AddedFoodItem: Identifiable {
     let id = UUID()
     let foodItem: FoodItem
-    let servings: Double
-    let totalGrams: Double
-    let selectedPortionId: Int?
-    
+    let servingSize: ServingSize  // Which serving was selected
+    let quantity: Double  // How many of that serving (e.g., 1.5)
+
     var calories: Double {
-        foodItem.caloriesPer100g * (totalGrams / 100.0)
+        let nutrition = NutritionCalculator.calculate(food: foodItem, serving: servingSize, quantity: quantity)
+        return nutrition.calories
     }
-    
+
     var protein: Double {
-        foodItem.proteinPer100g * (totalGrams / 100.0)
+        let nutrition = NutritionCalculator.calculate(food: foodItem, serving: servingSize, quantity: quantity)
+        return nutrition.protein
     }
-    
+
     var carbs: Double {
-        foodItem.carbsPer100g * (totalGrams / 100.0)
+        let nutrition = NutritionCalculator.calculate(food: foodItem, serving: servingSize, quantity: quantity)
+        return nutrition.carbs
     }
-    
+
     var fat: Double {
-        foodItem.fatPer100g * (totalGrams / 100.0)
+        let nutrition = NutritionCalculator.calculate(food: foodItem, serving: servingSize, quantity: quantity)
+        return nutrition.fat
+    }
+
+    var totalGrams: Double? {
+        guard let gramWeight = servingSize.gramWeight else { return nil }
+        return gramWeight * quantity
     }
 }
 

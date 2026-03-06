@@ -20,7 +20,7 @@ struct FoodLogEditView: View {
     @State private var fraction: Fraction
     @State private var selectedUnit: ServingUnit
     @State private var showingNutritionEditor = false
-    @State private var selectedPortion: StoredPortion?
+    @State private var selectedPortion: ServingSize?
     @State private var showingAmountTextField = false
     @State private var amountTextFieldValue: String = ""
     
@@ -59,9 +59,15 @@ struct FoodLogEditView: View {
         self.foodType = FoodType.infer(from: foodItem.name)
         
         // Parse serving unit display name once at init
-        let parsedResult = ServingSizeParser.parse(foodItem.servingDescription)
-        if let parsed = parsedResult {
-            self.parsedServingUnit = parsed.unit.abbreviation.capitalized
+        // Use default serving's label since baseServingDescription no longer exists
+        if let defaultServing = foodItem.defaultServing {
+            let parsedResult = ServingSizeParser.parse(defaultServing.label)
+            if let parsed = parsedResult {
+                // Use full display name instead of abbreviation
+                self.parsedServingUnit = Self.displayNameForServingUnit(parsed.unit)
+            } else {
+                self.parsedServingUnit = "Serving"
+            }
         } else {
             self.parsedServingUnit = "Serving"
         }
@@ -70,32 +76,73 @@ struct FoodLogEditView: View {
         var units: [ServingUnit] = []
         units.append(.gram)
         units.append(.ounce)
-        
+
         if foodType == .liquid || foodType == .milk || foodType == .peanutButter || foodType == .honey || foodType == .oil {
             units.append(contentsOf: [.cup, .fluidOunce, .tablespoon, .teaspoon])
         }
-        
-        if foodItem.gramsPerServing > 0 {
-            units.insert(.serving, at: 0)
+
+        if let defaultServing = foodItem.defaultServing, let gramWeight = defaultServing.gramWeight, gramWeight > 0 {
+            // Only add .serving if the label isn't parseable to a specific unit
+            let parsed = ServingSizeParser.parse(defaultServing.label)
+            if parsed == nil || parsed?.unit == .serving {
+                units.insert(.serving, at: 0)
+            }
         }
-        
+
+        // Check if food has serving sizes
+        self.hasPortions = !foodItem.servingSizes.isEmpty
+
+        // Initialize selected portion from log's saved serving size
+        if let logServingSize = log.servingSize {
+            _selectedPortion = State(initialValue: logServingSize)
+        } else if foodItem.nutritionMode == .perServing, let firstSize = foodItem.servingSizes.first {
+            _selectedPortion = State(initialValue: firstSize)
+        }
+
+        // Parse the unit from the LOGGED serving (or default serving as fallback).
+        // Using the logged serving ensures the display unit matches what was actually recorded,
+        // and that resolvedQuantity will round-trip correctly back to log.quantity.
+        let relevantServing = log.servingSize ?? foodItem.defaultServing
+        let parsedResult = relevantServing.flatMap { ServingSizeParser.parse($0.label) }
+
+        // If the serving's native unit isn't covered by food-type rules, add it now.
+        // E.g. a "2 tbsp" serving on a food not classified as peanutButter/honey/oil.
+        if let parsed = parsedResult, parsed.unit != .serving, !units.contains(parsed.unit) {
+            units.insert(parsed.unit, at: 0)
+        }
+
         self.availableUnits = units
-        
-        // Check if food has portions
-        self.hasPortions = (foodItem.portions?.isEmpty == false)
-        
-        // Initialize selected portion from log's saved portion ID
-        if let portionId = log.selectedPortionId,
-           let portions = foodItem.portions,
-           let savedPortion = portions.first(where: { $0.id == portionId }) {
-            _selectedPortion = State(initialValue: savedPortion)
-        } else if let portions = foodItem.portions, let firstPortion = portions.first {
-            // Fallback to first portion if no saved selection
-            _selectedPortion = State(initialValue: firstPortion)
+
+        // Determine the display unit and initial amount value.
+        let displayUnit: ServingUnit
+        let parsedAmount: Double?
+
+        if let parsed = parsedResult, parsed.unit != .serving {
+            // Serving label parsed to a concrete unit (e.g. "2 tbsp" → .tablespoon, amount 2.0)
+            displayUnit = parsed.unit
+            parsedAmount = parsed.amount
+        } else if relevantServing != nil {
+            // Label didn't parse to a specific unit but a serving exists — show as serving count
+            displayUnit = .serving
+            parsedAmount = nil
+        } else {
+            // No serving at all — fall back to grams for per100g foods
+            let hasServingGrams = foodItem.defaultServing?.gramWeight ?? 0 > 0
+            displayUnit = hasServingGrams ? .serving : .gram
+            parsedAmount = nil
+        }
+        _selectedUnit = State(initialValue: displayUnit)
+
+        // Convert log.quantity (always in serving-count units) to the display unit.
+        // resolvedQuantity performs the inverse: displayAmount / parsedAmount → serving count.
+        // So: displayAmount = log.quantity × parsedAmount  ↔  quantity = displayAmount / parsedAmount
+        let currentAmount: Double
+        if let parsedAmount, parsedAmount > 0, displayUnit != .serving {
+            currentAmount = log.quantity * parsedAmount
+        } else {
+            currentAmount = log.quantity
         }
         
-        // Initialize from current serving multiplier
-        let currentAmount = log.servingMultiplier
         let whole = Int(currentAmount)
         let fractionalPart = currentAmount - Double(whole)
         let closestFraction = Fraction.allCases.min(by: { 
@@ -104,61 +151,82 @@ struct FoodLogEditView: View {
         
         _wholeNumber = State(initialValue: whole)
         _fraction = State(initialValue: closestFraction)
-        
-        // Try to parse the original serving unit from the foodItem
-        if let parsed = parsedResult {
-            _selectedUnit = State(initialValue: parsed.unit)
-        } else {
-            // Fallback to serving if we have a serving size, otherwise grams
-            _selectedUnit = State(initialValue: foodItem.gramsPerServing > 0 ? .serving : .gram)
-        }
     }
     
     private var amountValue: Double {
         Double(wholeNumber) + fraction.rawValue
     }
-    
-    private var totalGrams: Double {
-        // If a portion is selected, use its gram weight
-        if let portion = selectedPortion {
-            return amountValue * portion.gramWeight
-        }
-        
+
+    // MARK: - Single source of truth for serving and quantity
+
+    /// The serving passed to NutritionCalculator.
+    /// Priority: user-picked portion → what was originally logged → food's default serving.
+    private var effectiveServing: ServingSize? {
+        selectedPortion ?? log.servingSize ?? foodItem.defaultServing
+    }
+
+    /// Converts amountValue + selectedUnit into a serving count for NutritionCalculator.
+    ///
+    /// The init ensures:  amountValue = log.quantity × parsedAmount
+    /// So the inverse is: quantity   = amountValue ÷ parsedAmount
+    ///
+    /// Three cases:
+    ///   .serving         → amountValue IS the count directly
+    ///   unit == parsed   → divide by parsedAmount to recover the count
+    ///   other unit       → gram-based conversion via density / gramWeight
+    private var resolvedQuantity: Double {
         if selectedUnit == .serving {
-            // For serving unit, multiply by the food's gramsPerServing
-            return amountValue * foodItem.gramsPerServing
-        } else {
-            let density = ServingUnit.densityFor(foodType: foodType)
-            return selectedUnit.toGrams(amount: amountValue, density: density)
+            return amountValue
         }
+
+        if let serving = effectiveServing,
+           let parsed = ServingSizeParser.parse(serving.label),
+           parsed.unit == selectedUnit,
+           parsed.amount > 0 {
+            return amountValue / parsed.amount
+        }
+
+        // Gram-based fallback (e.g. user switched to Grams or Ounces)
+        let density = ServingUnit.densityFor(foodType: foodType)
+        let grams = selectedUnit.toGrams(amount: amountValue, density: density)
+        if let servingGrams = effectiveServing?.gramWeight, servingGrams > 0 {
+            return grams / servingGrams
+        }
+
+        return amountValue
     }
-    
-    private var nutritionMultiplier: Double {
-        totalGrams / 100.0
+
+    private var totalGrams: Double {
+        if let servingGrams = effectiveServing?.gramWeight, servingGrams > 0 {
+            return resolvedQuantity * servingGrams
+        }
+        let density = ServingUnit.densityFor(foodType: foodType)
+        return selectedUnit.toGrams(amount: amountValue, density: density)
     }
-    
+
     private var currentServingDisplayText: String {
-        // If a portion is selected, show it with amount
-        if let portion = selectedPortion {
-            return formatAmount(amountValue) + " " + portion.modifier
-        }
-        
-        // Otherwise format based on selected unit
         let amountText = formatAmount(amountValue)
-        let unitText = displayNameForUnit(selectedUnit)
-        
-        return "\(amountText) \(unitText)"
+        if selectedUnit == .serving {
+            let label = effectiveServing?.label ?? "serving"
+            return "\(amountText) \(label)"
+        }
+        return "\(amountText) \(displayNameForUnit(selectedUnit))"
     }
-    
-    private var calculatedNutrition: NutritionFacts {
-        NutritionFacts(
-            caloriesPer100g: foodItem.caloriesPer100g * nutritionMultiplier,
-            proteinPer100g: foodItem.proteinPer100g * nutritionMultiplier,
-            carbsPer100g: foodItem.carbsPer100g * nutritionMultiplier,
-            fatPer100g: foodItem.fatPer100g * nutritionMultiplier,
-            fiberPer100g: (foodItem.fiberPer100g ?? 0) * nutritionMultiplier,
-            sugarPer100g: (foodItem.sugarPer100g ?? 0) * nutritionMultiplier,
-            sodiumPer100g: (foodItem.sodiumPer100g ?? 0) * nutritionMultiplier
+
+    private var calculatedNutrition: NutritionCalculator.Result {
+        // per100g food with no gram weight anywhere — synthesise a temp serving from the
+        // total gram amount so NutritionCalculator can scale correctly.
+        if foodItem.nutritionMode == .per100g, effectiveServing?.gramWeight == nil {
+            let grams = totalGrams
+            guard grams > 0 else { return .zero }
+            let tempServing = ServingSize(label: "\(Int(grams))g", gramWeight: grams,
+                                         isDefault: false, sortOrder: 0)
+            return NutritionCalculator.calculate(food: foodItem, serving: tempServing, quantity: 1.0)
+        }
+        return NutritionCalculator.calculate(
+            food: foodItem,
+            serving: effectiveServing,
+            quantity: resolvedQuantity
         )
     }
     
@@ -218,7 +286,7 @@ struct FoodLogEditView: View {
                 Text("Calories")
                     .font(.system(size: 32, weight: .black))
                 Spacer()
-                Text("\(Int(calculatedNutrition.caloriesPer100g))")
+                Text("\(Int(calculatedNutrition.calories))")
                     .font(.system(size: 44, weight: .black))
             }
             .padding(.vertical, 4)
@@ -241,53 +309,53 @@ struct FoodLogEditView: View {
             thinDivider()
             
             // Macronutrients
-            nutrientRow("Total Fat", calculatedNutrition.fatPer100g, "g", bold: true)
+            nutrientRow("Total Fat", calculatedNutrition.fat, "g", bold: true)
             thinDivider()
             
-            if let satFat = foodItem.saturatedFatPer100g, satFat > 0 {
-                indentedNutrientRow("Saturated Fat", satFat * nutritionMultiplier, "g")
+            if let satFat = calculatedNutrition.saturatedFat, satFat > 0 {
+                indentedNutrientRow("Saturated Fat", satFat, "g")
                 thinDivider()
             }
             
-            if let transFat = foodItem.transFatPer100g, transFat > 0 {
-                indentedNutrientRow("Trans Fat", transFat * nutritionMultiplier, "g")
+            if let transFat = calculatedNutrition.transFat, transFat > 0 {
+                indentedNutrientRow("Trans Fat", transFat, "g")
                 thinDivider()
             }
             
-            if let monoFat = foodItem.monounsaturatedFatPer100g, monoFat > 0 {
-                indentedNutrientRow("Monounsaturated Fat", monoFat * nutritionMultiplier, "g")
+            if let monoFat = calculatedNutrition.monounsaturatedFat, monoFat > 0 {
+                indentedNutrientRow("Monounsaturated Fat", monoFat, "g")
                 thinDivider()
             }
             
-            if let polyFat = foodItem.polyunsaturatedFatPer100g, polyFat > 0 {
-                indentedNutrientRow("Polyunsaturated Fat", polyFat * nutritionMultiplier, "g")
+            if let polyFat = calculatedNutrition.polyunsaturatedFat, polyFat > 0 {
+                indentedNutrientRow("Polyunsaturated Fat", polyFat, "g")
                 thinDivider()
             }
             
-            if let cholesterol = foodItem.cholesterolPer100g, cholesterol > 0 {
-                nutrientRow("Cholesterol", cholesterol * nutritionMultiplier * 1000, "mg", bold: true)
+            if let cholesterol = calculatedNutrition.cholesterol, cholesterol > 0 {
+                nutrientRow("Cholesterol", cholesterol, "mg", bold: true)
                 thinDivider()
             }
             
-            if let sodium = foodItem.sodiumPer100g, sodium > 0 {
-                nutrientRow("Sodium", sodium * nutritionMultiplier * 1000, "mg", bold: true)
+            if let sodium = calculatedNutrition.sodium, sodium > 0 {
+                nutrientRow("Sodium", sodium, "mg", bold: true)
                 thinDivider()
             }
             
-            nutrientRow("Total Carbohydrate", calculatedNutrition.carbsPer100g, "g", bold: true)
+            nutrientRow("Total Carbohydrate", calculatedNutrition.carbs, "g", bold: true)
             thinDivider()
             
-            if let fiber = foodItem.fiberPer100g, fiber > 0 {
-                indentedNutrientRow("Dietary Fiber", fiber * nutritionMultiplier, "g")
+            if let fiber = calculatedNutrition.fiber, fiber > 0 {
+                indentedNutrientRow("Dietary Fiber", fiber, "g")
                 thinDivider()
             }
             
-            if let sugar = foodItem.sugarPer100g, sugar > 0 {
-                indentedNutrientRow("Total Sugars", sugar * nutritionMultiplier, "g")
+            if let sugar = calculatedNutrition.sugar, sugar > 0 {
+                indentedNutrientRow("Total Sugars", sugar, "g")
                 thinDivider()
             }
             
-            nutrientRow("Protein", calculatedNutrition.proteinPer100g, "g", bold: true)
+            nutrientRow("Protein", calculatedNutrition.protein, "g", bold: true)
             
             // Heavy divider before vitamins/minerals
             Rectangle()
@@ -297,78 +365,78 @@ struct FoodLogEditView: View {
             
             // Vitamins and Minerals
             VStack(spacing: 0) {
-                if let vitaminD = foodItem.vitaminDPer100g, vitaminD > 0 {
-                    nutrientRow("Vitamin D", vitaminD * nutritionMultiplier * 1_000_000, "mcg")
+                if let vitaminD = calculatedNutrition.vitaminD, vitaminD > 0 {
+                    nutrientRow("Vitamin D", vitaminD, "mcg")
                     thinDivider()
                 }
                 
-                if let calcium = foodItem.calciumPer100g, calcium > 0 {
-                    nutrientRow("Calcium", calcium * nutritionMultiplier * 1000, "mg")
+                if let calcium = calculatedNutrition.calcium, calcium > 0 {
+                    nutrientRow("Calcium", calcium, "mg")
                     thinDivider()
                 }
                 
-                if let iron = foodItem.ironPer100g, iron > 0 {
-                    nutrientRow("Iron", iron * nutritionMultiplier * 1000, "mg")
+                if let iron = calculatedNutrition.iron, iron > 0 {
+                    nutrientRow("Iron", iron, "mg")
                     thinDivider()
                 }
                 
-                if let potassium = foodItem.potassiumPer100g, potassium > 0 {
-                    nutrientRow("Potassium", potassium * nutritionMultiplier * 1000, "mg")
+                if let potassium = calculatedNutrition.potassium, potassium > 0 {
+                    nutrientRow("Potassium", potassium, "mg")
                     thinDivider()
                 }
                 
-                if let vitaminA = foodItem.vitaminAPer100g, vitaminA > 0 {
-                    nutrientRow("Vitamin A", vitaminA * nutritionMultiplier * 1_000_000, "mcg")
+                if let vitaminA = calculatedNutrition.vitaminA, vitaminA > 0 {
+                    nutrientRow("Vitamin A", vitaminA, "mcg")
                     thinDivider()
                 }
                 
-                if let vitaminC = foodItem.vitaminCPer100g, vitaminC > 0 {
-                    nutrientRow("Vitamin C", vitaminC * nutritionMultiplier * 1000, "mg")
+                if let vitaminC = calculatedNutrition.vitaminC, vitaminC > 0 {
+                    nutrientRow("Vitamin C", vitaminC, "mg")
                     thinDivider()
                 }
                 
-                if let vitaminE = foodItem.vitaminEPer100g, vitaminE > 0 {
-                    nutrientRow("Vitamin E", vitaminE * nutritionMultiplier * 1000, "mg")
+                if let vitaminE = calculatedNutrition.vitaminE, vitaminE > 0 {
+                    nutrientRow("Vitamin E", vitaminE, "mg")
                     thinDivider()
                 }
                 
-                if let vitaminK = foodItem.vitaminKPer100g, vitaminK > 0 {
-                    nutrientRow("Vitamin K", vitaminK * nutritionMultiplier * 1_000_000, "mcg")
+                if let vitaminK = calculatedNutrition.vitaminK, vitaminK > 0 {
+                    nutrientRow("Vitamin K", vitaminK, "mcg")
                     thinDivider()
                 }
                 
-                if let vitaminB6 = foodItem.vitaminB6Per100g, vitaminB6 > 0 {
-                    nutrientRow("Vitamin B6", vitaminB6 * nutritionMultiplier * 1000, "mg")
+                if let vitaminB6 = calculatedNutrition.vitaminB6, vitaminB6 > 0 {
+                    nutrientRow("Vitamin B6", vitaminB6, "mg")
                     thinDivider()
                 }
                 
-                if let vitaminB12 = foodItem.vitaminB12Per100g, vitaminB12 > 0 {
-                    nutrientRow("Vitamin B12", vitaminB12 * nutritionMultiplier * 1_000_000, "mcg")
+                if let vitaminB12 = calculatedNutrition.vitaminB12, vitaminB12 > 0 {
+                    nutrientRow("Vitamin B12", vitaminB12, "mcg")
                     thinDivider()
                 }
                 
-                if let folate = foodItem.folatePer100g, folate > 0 {
-                    nutrientRow("Folate", folate * nutritionMultiplier * 1_000_000, "mcg")
+                if let folate = calculatedNutrition.folate, folate > 0 {
+                    nutrientRow("Folate", folate, "mcg")
                     thinDivider()
                 }
                 
-                if let choline = foodItem.cholinePer100g, choline > 0 {
-                    nutrientRow("Choline", choline * nutritionMultiplier * 1000, "mg")
+                if let choline = calculatedNutrition.choline, choline > 0 {
+                    nutrientRow("Choline", choline, "mg")
                     thinDivider()
                 }
                 
-                if let magnesium = foodItem.magnesiumPer100g, magnesium > 0 {
-                    nutrientRow("Magnesium", magnesium * nutritionMultiplier * 1000, "mg")
+                if let magnesium = calculatedNutrition.magnesium, magnesium > 0 {
+                    nutrientRow("Magnesium", magnesium, "mg")
                     thinDivider()
                 }
                 
-                if let zinc = foodItem.zincPer100g, zinc > 0 {
-                    nutrientRow("Zinc", zinc * nutritionMultiplier * 1000, "mg")
+                if let zinc = calculatedNutrition.zinc, zinc > 0 {
+                    nutrientRow("Zinc", zinc, "mg")
                     thinDivider()
                 }
                 
-                if let caffeine = foodItem.caffeinePer100g, caffeine > 0 {
-                    nutrientRow("Caffeine", caffeine * nutritionMultiplier * 1000, "mg")
+                if let caffeine = calculatedNutrition.caffeine, caffeine > 0 {
+                    nutrientRow("Caffeine", caffeine, "mg")
                     thinDivider()
                 }
             }
@@ -496,18 +564,6 @@ struct FoodLogEditView: View {
             VStack(spacing: 0) {
                 // Product header
                 HStack(spacing: 12) {
-                    if let imageUrl = foodItem.imageURL, let url = URL(string: imageUrl) {
-                        AsyncImage(url: url) { image in
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                        } placeholder: {
-                            Color.gray.opacity(0.2)
-                        }
-                        .frame(width: 50, height: 50)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    
                     VStack(alignment: .leading, spacing: 4) {
                         Text(foodItem.name)
                             .font(.headline)
@@ -536,8 +592,8 @@ struct FoodLogEditView: View {
                 
                 // Modern serving controls
                 VStack(spacing: 12) {
-                    // Portion size selector (if portions are available)
-                    if hasPortions, let portions = foodItem.portions {
+                    // Portion size selector (only show if there are multiple serving sizes)
+                    if foodItem.servingSizes.count > 1 {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Size")
                                 .font(.subheadline)
@@ -545,14 +601,14 @@ struct FoodLogEditView: View {
                                 .foregroundStyle(Color("TextSecondary"))
                             
                             Menu {
-                                ForEach(portions) { portion in
+                                ForEach(foodItem.servingSizes) { servingSize in
                                     Button {
-                                        selectedPortion = portion
+                                        selectedPortion = servingSize
                                     } label: {
                                         HStack {
-                                            Text(portion.modifier.capitalized)
+                                            Text(servingSize.label.capitalized)
                                             Spacer()
-                                            if selectedPortion?.id == portion.id {
+                                            if selectedPortion?.id == servingSize.id {
                                                 Image(systemName: "checkmark")
                                             }
                                         }
@@ -560,7 +616,7 @@ struct FoodLogEditView: View {
                                 }
                             } label: {
                                 HStack {
-                                    Text(selectedPortion?.modifier.capitalized ?? "Select size")
+                                    Text(selectedPortion?.label.capitalized ?? "Select size")
                                         .foregroundStyle(Color("TextPrimary"))
                                     Spacer()
                                     Image(systemName: "chevron.up.chevron.down")
@@ -711,7 +767,7 @@ struct FoodLogEditView: View {
                 }
             }
             .sheet(isPresented: $showingNutritionEditor) {
-                NutritionEditorView(foodItem: foodItem, loggedServings: log.servingMultiplier, loggedGrams: log.totalGrams, servingDisplayText: log.servingDisplayText)
+                NutritionEditorView(foodItem: foodItem, referenceQuantity: resolvedQuantity)
             }
         }
     }
@@ -722,7 +778,36 @@ struct FoodLogEditView: View {
         if unit == .serving {
             return parsedServingUnit
         }
-        return unit.rawValue
+        // Use proper display names
+        switch unit {
+        case .gram: return "Grams"
+        case .ounce: return "Ounces"
+        case .cup: return "Cups"
+        case .fluidOunce: return "Fluid Ounces"
+        case .tablespoon: return "Tablespoons"
+        case .teaspoon: return "Teaspoons"
+        case .milliliter: return "Milliliters"
+        case .liter: return "Liters"
+        case .pound: return "Pounds"
+        case .container: return "Containers"
+        default: return unit.rawValue
+        }
+    }
+    
+    private static func displayNameForServingUnit(_ unit: ServingUnit) -> String {
+        switch unit {
+        case .gram: return "Grams"
+        case .ounce: return "Ounces"
+        case .cup: return "Cups"
+        case .fluidOunce: return "Fluid Ounces"
+        case .tablespoon: return "Tablespoons"
+        case .teaspoon: return "Teaspoons"
+        case .milliliter: return "Milliliters"
+        case .liter: return "Liters"
+        case .pound: return "Pounds"
+        case .serving: return "Serving"
+        case .container: return "Containers"
+        }
     }
     
     private func incrementAmount() {
@@ -838,36 +923,46 @@ struct FoodLogEditView: View {
     }
     
     private func saveChanges() {
-        // Fix broken gramsPerServing if needed (from old bug where it was set to 1)
-        // If gramsPerServing is suspiciously low and we have a valid log, back-calculate it
-        if foodItem.gramsPerServing < 10 && log.servingMultiplier > 0 && log.totalGrams > 10 {
-            let correctedGramsPerServing = log.totalGrams / log.servingMultiplier
-            foodItem.gramsPerServing = correctedGramsPerServing
-        }
+        // Commit the serving and quantity — use the same effectiveServing / resolvedQuantity
+        // the live preview used, so what the user sees is exactly what gets saved.
+        let serving = effectiveServing
+        log.servingSize = serving
+        log.quantity = resolvedQuantity
+
+        let nutrition = NutritionCalculator.calculate(
+            food: foodItem,
+            serving: serving,
+            quantity: resolvedQuantity
+        )
         
-        // Update the log with new values
-        log.servingMultiplier = amountValue
-        log.totalGrams = totalGrams
-        log.selectedPortionId = selectedPortion?.id
-        
-        // Set displayUnit based on what unit was selected
-        // This ensures the log shows the correct unit (e.g., "60g" not "60 cups")
-        if selectedUnit == .gram {
-            log.displayUnit = "g"
-        } else if selectedUnit == .ounce {
-            log.displayUnit = "oz"
-        } else {
-            // For other units (serving, cup, tbsp, etc.), clear displayUnit
-            // so it uses the default logic based on servingDescription
-            log.displayUnit = nil
-        }
-        
-        // Recalculate cached nutrition based on new portion/amount
-        let multiplier = totalGrams / 100.0
-        log.calories = foodItem.caloriesPer100g * multiplier
-        log.protein = foodItem.proteinPer100g * multiplier
-        log.carbs = foodItem.carbsPer100g * multiplier
-        log.fat = foodItem.fatPer100g * multiplier
+        // Update all frozen nutrition values
+        log.caloriesAtLogTime = nutrition.calories
+        log.proteinAtLogTime = nutrition.protein
+        log.carbsAtLogTime = nutrition.carbs
+        log.fatAtLogTime = nutrition.fat
+        log.fiberAtLogTime = nutrition.fiber
+        log.sodiumAtLogTime = nutrition.sodium
+        log.sugarAtLogTime = nutrition.sugar
+        log.saturatedFatAtLogTime = nutrition.saturatedFat
+        log.transFatAtLogTime = nutrition.transFat
+        log.monounsaturatedFatAtLogTime = nutrition.monounsaturatedFat
+        log.polyunsaturatedFatAtLogTime = nutrition.polyunsaturatedFat
+        log.cholesterolAtLogTime = nutrition.cholesterol
+        log.potassiumAtLogTime = nutrition.potassium
+        log.calciumAtLogTime = nutrition.calcium
+        log.ironAtLogTime = nutrition.iron
+        log.magnesiumAtLogTime = nutrition.magnesium
+        log.zincAtLogTime = nutrition.zinc
+        log.vitaminAAtLogTime = nutrition.vitaminA
+        log.vitaminCAtLogTime = nutrition.vitaminC
+        log.vitaminDAtLogTime = nutrition.vitaminD
+        log.vitaminEAtLogTime = nutrition.vitaminE
+        log.vitaminKAtLogTime = nutrition.vitaminK
+        log.vitaminB6AtLogTime = nutrition.vitaminB6
+        log.vitaminB12AtLogTime = nutrition.vitaminB12
+        log.folateAtLogTime = nutrition.folate
+        log.cholineAtLogTime = nutrition.choline
+        log.caffeineAtLogTime = nutrition.caffeine
         
         onSave(log)
         dismiss()
@@ -876,18 +971,19 @@ struct FoodLogEditView: View {
 
 // MARK: - Nutrition Editor View
 
-// MARK: - Nutrition Editor View
-
 struct NutritionEditorView: View {
     @Environment(\.dismiss) private var dismiss
-    
+
     let foodItem: FoodItem
-    
+
     // Serving size
     @State private var servingDescription: String
     @State private var gramsPerServing: String
-    
-    // Nutrition per serving
+    // How many servings the user is entering values for.
+    // E.g. 60 for "60 Grams" — all fields are shown at refAmt×base, saved as base.
+    @State private var referenceAmount: String
+
+    // Nutrition per serving (base — always 1 serving, never log-quantity scaled)
     @State private var calories: String
     @State private var totalFat: String
     @State private var saturatedFat: String
@@ -913,79 +1009,59 @@ struct NutritionEditorView: View {
     @State private var magnesium: String
     @State private var zinc: String
     @State private var caffeine: String
-    
-    init(foodItem: FoodItem, loggedServings: Double? = nil, loggedGrams: Double? = nil, servingDisplayText: String? = nil) {
+
+    @State private var dvMode = EditorDVMode()
+
+    /// - referenceQuantity: how many servings the user expects to see.
+    ///   Pass `resolvedQuantity` from FoodLogEditView so a food logged as
+    ///   "60 Grams" opens the editor showing 225 cal instead of 3.75 cal.
+    ///   per100g foods always ignore this and use 1.0.
+    init(foodItem: FoodItem, referenceQuantity: Double = 1.0) {
         self.foodItem = foodItem
-        
-        // If we have logged amount info, show that instead of the base serving
-        let actualServings = loggedServings ?? 1.0
-        let actualGrams = loggedGrams ?? foodItem.gramsPerServing
-        
-        // Use the properly formatted serving display text from the log if available
-        let cleanDescription: String
-        if let displayText = servingDisplayText {
-            // Use the log's formatted serving display (e.g., "4 oz")
-            cleanDescription = displayText
-        } else if let loggedServings = loggedServings, loggedServings != 1.0 {
-            // Fallback: show servings if no display text available
-            cleanDescription = String(format: "%.2f servings (%dg)", loggedServings, Int(actualGrams))
-                .replacingOccurrences(of: ".00", with: "")
-        } else {
-            // Just use the base serving description
-            cleanDescription = foodItem.servingDescription
-        }
-        
-        _servingDescription = State(initialValue: cleanDescription)
-        _gramsPerServing = State(initialValue: String(format: "%.0f", actualGrams))
-        
-        // Detect if this is old broken data from the bug where manual entries
-        // stored per-serving values as per-100g with gramsPerServing hardcoded to 100
-        // Heuristic: Manual foods with gramsPerServing=100 but serving description suggesting
-        // it's not actually 100g (like "1 serving", "1 container", etc.) are likely broken
-        let descLower = foodItem.servingDescription.lowercased()
-        let looksLike100g = descLower.contains("100") || descLower.contains("100g")
-        let isBrokenData = foodItem.source == "Manual" && 
-                          foodItem.gramsPerServing == 100 && 
-                          !looksLike100g &&
-                          !foodItem.servingSizeIsEstimated // If estimated, it's new and correct
-        
-        // Calculate multiplier based on actual logged amount
-        // If broken, don't convert (values are already per-serving)
-        // If correct, convert from per-100g to the actual logged amount
-        let servingMultiplier = isBrokenData ? actualServings : (actualGrams / 100.0)
-        
-        _calories = State(initialValue: String(format: "%.0f", foodItem.caloriesPer100g * servingMultiplier))
-        _totalFat = State(initialValue: String(format: "%.1f", foodItem.fatPer100g * servingMultiplier))
-        _saturatedFat = State(initialValue: String(format: "%.1f", (foodItem.saturatedFatPer100g ?? 0) * servingMultiplier))
-        _transFat = State(initialValue: String(format: "%.1f", (foodItem.transFatPer100g ?? 0) * servingMultiplier))
-        _cholesterol = State(initialValue: String(format: "%.0f", (foodItem.cholesterolPer100g ?? 0) * 1000 * servingMultiplier))
-        _sodium = State(initialValue: String(format: "%.0f", (foodItem.sodiumPer100g ?? 0) * 1000 * servingMultiplier))
-        _totalCarbs = State(initialValue: String(format: "%.1f", foodItem.carbsPer100g * servingMultiplier))
-        _fiber = State(initialValue: String(format: "%.1f", (foodItem.fiberPer100g ?? 0) * servingMultiplier))
-        _sugar = State(initialValue: String(format: "%.1f", (foodItem.sugarPer100g ?? 0) * servingMultiplier))
-        _protein = State(initialValue: String(format: "%.1f", foodItem.proteinPer100g * servingMultiplier))
-        _vitaminA = State(initialValue: String(format: "%.0f", (foodItem.vitaminAPer100g ?? 0) * 1_000_000 * servingMultiplier))
-        _vitaminC = State(initialValue: String(format: "%.0f", (foodItem.vitaminCPer100g ?? 0) * 1000 * servingMultiplier))
-        _vitaminD = State(initialValue: String(format: "%.0f", (foodItem.vitaminDPer100g ?? 0) * 1_000_000 * servingMultiplier))
-        _vitaminE = State(initialValue: String(format: "%.1f", (foodItem.vitaminEPer100g ?? 0) * 1000 * servingMultiplier))
-        _vitaminK = State(initialValue: String(format: "%.0f", (foodItem.vitaminKPer100g ?? 0) * 1_000_000 * servingMultiplier))
-        _vitaminB6 = State(initialValue: String(format: "%.1f", (foodItem.vitaminB6Per100g ?? 0) * 1000 * servingMultiplier))
-        _vitaminB12 = State(initialValue: String(format: "%.1f", (foodItem.vitaminB12Per100g ?? 0) * 1_000_000 * servingMultiplier))
-        _folate = State(initialValue: String(format: "%.0f", (foodItem.folatePer100g ?? 0) * 1_000_000 * servingMultiplier))
-        _choline = State(initialValue: String(format: "%.1f", (foodItem.cholinePer100g ?? 0) * 1000 * servingMultiplier))
-        _calcium = State(initialValue: String(format: "%.0f", (foodItem.calciumPer100g ?? 0) * 1000 * servingMultiplier))
-        _iron = State(initialValue: String(format: "%.1f", (foodItem.ironPer100g ?? 0) * 1000 * servingMultiplier))
-        _potassium = State(initialValue: String(format: "%.0f", (foodItem.potassiumPer100g ?? 0) * 1000 * servingMultiplier))
-        _magnesium = State(initialValue: String(format: "%.0f", (foodItem.magnesiumPer100g ?? 0) * 1000 * servingMultiplier))
-        _zinc = State(initialValue: String(format: "%.1f", (foodItem.zincPer100g ?? 0) * 1000 * servingMultiplier))
-        _caffeine = State(initialValue: String(format: "%.0f", (foodItem.caffeinePer100g ?? 0) * 1000 * servingMultiplier))
+
+        // For per100g foods the editor shows the stored per-100g values unchanged.
+        // For perServing foods with a bare unit label (e.g. "Grams"), the food
+        // stores per-1-unit values; we scale up by the logged quantity so the
+        // editor shows recognisable numbers (225 cal, not 3.75 cal).
+        let refAmt = foodItem.nutritionMode == .per100g ? 1.0 : max(referenceQuantity, 0.001)
+
+        _servingDescription = State(initialValue: foodItem.defaultServing?.label ?? "1 serving")
+        _gramsPerServing = State(initialValue: foodItem.defaultServing?.gramWeight.map { String(format: "%.0f", $0) } ?? "")
+        _referenceAmount = State(initialValue: refAmt.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0f", refAmt) : String(format: "%.4g", refAmt))
+
+        // Scale all fields by refAmt so the editor shows values at the logged quantity.
+        _calories    = State(initialValue: String(format: "%.0f", foodItem.calories * refAmt))
+        _totalFat    = State(initialValue: String(format: "%.1f", foodItem.fat * refAmt))
+        _saturatedFat = State(initialValue: foodItem.saturatedFat.map { String(format: "%.1f", $0 * refAmt) } ?? "")
+        _transFat    = State(initialValue: foodItem.transFat.map    { String(format: "%.1f", $0 * refAmt) } ?? "")
+        _cholesterol = State(initialValue: foodItem.cholesterol.map { String(format: "%.0f", $0 * refAmt) } ?? "")
+        _sodium      = State(initialValue: foodItem.sodium.map      { String(format: "%.0f", $0 * refAmt) } ?? "")
+        _totalCarbs  = State(initialValue: String(format: "%.1f", foodItem.carbs * refAmt))
+        _fiber       = State(initialValue: foodItem.fiber.map    { String(format: "%.1f", $0 * refAmt) } ?? "")
+        _sugar       = State(initialValue: foodItem.sugar.map    { String(format: "%.1f", $0 * refAmt) } ?? "")
+        _protein     = State(initialValue: String(format: "%.1f", foodItem.protein * refAmt))
+        _vitaminA    = State(initialValue: foodItem.vitaminA.map  { String(format: "%.0f", $0 * refAmt) } ?? "")
+        _vitaminC    = State(initialValue: foodItem.vitaminC.map  { String(format: "%.1f", $0 * refAmt) } ?? "")
+        _vitaminD    = State(initialValue: foodItem.vitaminD.map  { String(format: "%.0f", $0 * refAmt) } ?? "")
+        _vitaminE    = State(initialValue: foodItem.vitaminE.map  { String(format: "%.1f", $0 * refAmt) } ?? "")
+        _vitaminK    = State(initialValue: foodItem.vitaminK.map  { String(format: "%.0f", $0 * refAmt) } ?? "")
+        _vitaminB6   = State(initialValue: foodItem.vitaminB6.map { String(format: "%.1f", $0 * refAmt) } ?? "")
+        _vitaminB12  = State(initialValue: foodItem.vitaminB12.map { String(format: "%.0f", $0 * refAmt) } ?? "")
+        _folate      = State(initialValue: foodItem.folate.map   { String(format: "%.0f", $0 * refAmt) } ?? "")
+        _choline     = State(initialValue: foodItem.choline.map  { String(format: "%.1f", $0 * refAmt) } ?? "")
+        _calcium     = State(initialValue: foodItem.calcium.map  { String(format: "%.1f", $0 * refAmt) } ?? "")
+        _iron        = State(initialValue: foodItem.iron.map     { String(format: "%.1f", $0 * refAmt) } ?? "")
+        _potassium   = State(initialValue: foodItem.potassium.map { String(format: "%.1f", $0 * refAmt) } ?? "")
+        _magnesium   = State(initialValue: foodItem.magnesium.map { String(format: "%.1f", $0 * refAmt) } ?? "")
+        _zinc        = State(initialValue: foodItem.zinc.map     { String(format: "%.1f", $0 * refAmt) } ?? "")
+        _caffeine    = State(initialValue: foodItem.caffeine.map { String(format: "%.1f", $0 * refAmt) } ?? "")
     }
-    
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    
                     nutritionCard
                 }
                 .padding()
@@ -998,7 +1074,6 @@ struct NutritionEditorView: View {
                     Button("Cancel") { dismiss() }
                         .foregroundStyle(Color("TextSecondary"))
                 }
-                
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { saveNutrition() }
                         .fontWeight(.semibold)
@@ -1009,77 +1084,170 @@ struct NutritionEditorView: View {
     }
 }
 
+// Separate from ManualFoodEntryView's DVMode (which is file-private there)
+private struct EditorDVMode {
+    var saturatedFat = false; var fiber = false
+    var cholesterol = false;  var sodium = false
+    var vitaminA = false;  var vitaminC = false;  var vitaminD = false
+    var vitaminE = false;  var vitaminK = false;  var vitaminB6 = false
+    var vitaminB12 = false; var folate = false;   var choline = false
+    var calcium = false;   var iron = false;      var potassium = false
+    var magnesium = false; var zinc = false
+}
+
 private extension NutritionEditorView {
-    
+
+    func parseDV(_ str: String, dv: Double, usePercent: Bool) -> Double? {
+        guard !str.isEmpty, let val = Double(str) else { return nil }
+        return usePercent ? val / 100.0 * dv : val
+    }
+
+    /// Called when the user commits a new referenceAmount value.
+    /// Recomputes all text fields from the FoodItem's base (per-1-serving)
+    /// values × the new amount, keeping the math exact.
+    func commitReferenceAmount() {
+        guard let amt = Double(referenceAmount), amt > 0 else { return }
+        recomputeFields(at: amt)
+    }
+
+    func recomputeFields(at amt: Double) {
+        calories    = String(format: "%.0f", foodItem.calories * amt)
+        totalFat    = String(format: "%.1f", foodItem.fat * amt)
+        saturatedFat = foodItem.saturatedFat.map { String(format: "%.1f", $0 * amt) } ?? ""
+        transFat    = foodItem.transFat.map    { String(format: "%.1f", $0 * amt) } ?? ""
+        cholesterol = foodItem.cholesterol.map { String(format: "%.0f", $0 * amt) } ?? ""
+        sodium      = foodItem.sodium.map      { String(format: "%.0f", $0 * amt) } ?? ""
+        totalCarbs  = String(format: "%.1f", foodItem.carbs * amt)
+        fiber       = foodItem.fiber.map    { String(format: "%.1f", $0 * amt) } ?? ""
+        sugar       = foodItem.sugar.map    { String(format: "%.1f", $0 * amt) } ?? ""
+        protein     = String(format: "%.1f", foodItem.protein * amt)
+        vitaminA    = foodItem.vitaminA.map  { String(format: "%.0f", $0 * amt) } ?? ""
+        vitaminC    = foodItem.vitaminC.map  { String(format: "%.1f", $0 * amt) } ?? ""
+        vitaminD    = foodItem.vitaminD.map  { String(format: "%.0f", $0 * amt) } ?? ""
+        vitaminE    = foodItem.vitaminE.map  { String(format: "%.1f", $0 * amt) } ?? ""
+        vitaminK    = foodItem.vitaminK.map  { String(format: "%.0f", $0 * amt) } ?? ""
+        vitaminB6   = foodItem.vitaminB6.map { String(format: "%.1f", $0 * amt) } ?? ""
+        vitaminB12  = foodItem.vitaminB12.map { String(format: "%.0f", $0 * amt) } ?? ""
+        folate      = foodItem.folate.map   { String(format: "%.0f", $0 * amt) } ?? ""
+        choline     = foodItem.choline.map  { String(format: "%.1f", $0 * amt) } ?? ""
+        calcium     = foodItem.calcium.map  { String(format: "%.1f", $0 * amt) } ?? ""
+        iron        = foodItem.iron.map     { String(format: "%.1f", $0 * amt) } ?? ""
+        potassium   = foodItem.potassium.map { String(format: "%.1f", $0 * amt) } ?? ""
+        magnesium   = foodItem.magnesium.map { String(format: "%.1f", $0 * amt) } ?? ""
+        zinc        = foodItem.zinc.map     { String(format: "%.1f", $0 * amt) } ?? ""
+        caffeine    = foodItem.caffeine.map { String(format: "%.1f", $0 * amt) } ?? ""
+        // Reset DV-toggle modes since values are now the recomputed absolutes
+        dvMode = EditorDVMode()
+    }
+
     var nutritionCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            
+        VStack(alignment: .leading, spacing: 0) {
+
+            // Header
             Text("Nutrition Facts")
-                .font(.system(size: 28, weight: .bold))
+                .font(.system(size: 32, weight: .black))
                 .foregroundStyle(Color("TextPrimary"))
-            
-            Divider().background(Color("TextPrimary"))
-            
+                .padding(.bottom, 4)
+
+            Rectangle().fill(Color("TextPrimary")).frame(height: 8)
+
+            // Serving info
             servingRow
-            Divider()
-            
+                .padding(.vertical, 6)
+
+            thinDivider
+
+            // Calories
             caloriesRow
-            
-            thickDivider
-            
+                .padding(.vertical, 4)
+
+            Rectangle().fill(Color("TextPrimary")).frame(height: 8)
+
+            // % DV header
+            Text("% Daily Value*")
+                .font(.system(size: 11, weight: .regular))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.top, 4)
+
+            thinDivider
+
             fatSection
-            Divider()
-            
+
+            thinDivider
+
             carbsSection
-            Divider()
-            
-            proteinRow
-            
-            thickDivider
-            
+
+            thinDivider
+
+            proteinRow.padding(.vertical, 4)
+
+            Rectangle().fill(Color("TextPrimary")).frame(height: 8)
+
+            Text("Tap a unit (mg, mcg, g) to switch to % Daily Value.")
+                .font(.system(size: 10))
+                .foregroundStyle(Color("TextSecondary"))
+                .padding(.vertical, 4)
+
             vitaminSection
+
+            thinDivider
+
+            Text("* The % Daily Value tells you how much a nutrient in a serving contributes to a daily diet.")
+                .font(.system(size: 9))
+                .foregroundStyle(Color("TextSecondary"))
+                .padding(.top, 6)
         }
         .padding(20)
         .background(Color("SurfacePrimary"))
         .clipShape(RoundedRectangle(cornerRadius: 24))
         .shadow(color: .black.opacity(0.05), radius: 10, y: 6)
     }
-    
-    var thickDivider: some View {
-        Rectangle()
-            .fill(Color("TextPrimary"))
-            .frame(height: 4)
+
+    var thinDivider: some View {
+        Rectangle().fill(Color("TextPrimary")).frame(height: 1)
     }
-    
+
     var servingRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("Serving Size")
+                Text("Serving Size").fontWeight(.semibold)
                 Spacer()
                 TextField("1 cup", text: $servingDescription)
                     .multilineTextAlignment(.trailing)
             }
-            
-            HStack {
-                Text("Grams per Serving")
+            // "Per X [serving label]" — lets the user work in a recognisable
+            // quantity (e.g. 60 Grams = 225 cal) instead of per-1-unit values.
+            // Changing the amount and tapping ↵ rescales all fields from the
+            // stored base values so the math stays exact.
+            HStack(spacing: 4) {
+                Text("Per").foregroundStyle(Color("TextSecondary"))
+                TextField("1", text: $referenceAmount)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 52)
+                    .onSubmit { commitReferenceAmount() }
+                Text(servingDescription.isEmpty ? "serving" : servingDescription)
+                    .foregroundStyle(Color("TextSecondary"))
+                    .lineLimit(1)
                 Spacer()
-                TextField("0", text: $gramsPerServing)
+            }
+            HStack {
+                Text("Grams per Serving").foregroundStyle(Color("TextSecondary"))
+                Spacer()
+                TextField("—", text: $gramsPerServing)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
-                Text("g")
-                    .foregroundStyle(Color("TextSecondary"))
+                    .frame(width: 60)
+                Text("g").foregroundStyle(Color("TextSecondary"))
             }
         }
         .font(.subheadline)
     }
-    
+
     var caloriesRow: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text("Calories")
-                .font(.system(size: 22, weight: .bold))
-            
+            Text("Calories").font(.system(size: 22, weight: .bold))
             Spacer()
-            
             TextField("0", text: $calories)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
@@ -1087,49 +1255,65 @@ private extension NutritionEditorView {
                 .frame(width: 120)
         }
     }
-    
+
     var fatSection: some View {
-        VStack(spacing: 6) {
-            labelRow("Total Fat", $totalFat, "g", bold: true)
-            labelRow("Saturated Fat", $saturatedFat, "g", indent: true)
-            labelRow("Trans Fat", $transFat, "g", indent: true)
-            labelRow("Cholesterol", $cholesterol, "mg")
-            labelRow("Sodium", $sodium, "mg")
+        VStack(spacing: 0) {
+            labelRow("Total Fat", $totalFat, "g", bold: true).padding(.vertical, 3)
+            thinDivider
+            DVNutrientRow(label: "Saturated Fat", value: $saturatedFat, unit: "g",   dailyValue: 20,   usePercent: $dvMode.saturatedFat, isIndented: true)
+                .font(.subheadline).padding(.vertical, 3)
+            thinDivider
+            labelRow("Trans Fat", $transFat, "g", indent: true).padding(.vertical, 3)
+            thinDivider
+            DVNutrientRow(label: "Cholesterol",   value: $cholesterol,  unit: "mg",  dailyValue: 300,  usePercent: $dvMode.cholesterol).font(.subheadline).padding(.vertical, 3)
+            thinDivider
+            DVNutrientRow(label: "Sodium",        value: $sodium,       unit: "mg",  dailyValue: 2300, usePercent: $dvMode.sodium).font(.subheadline).padding(.vertical, 3)
         }
     }
-    
+
     var carbsSection: some View {
-        VStack(spacing: 6) {
-            labelRow("Total Carbohydrate", $totalCarbs, "g", bold: true)
-            labelRow("Dietary Fiber", $fiber, "g", indent: true)
-            labelRow("Total Sugars", $sugar, "g", indent: true)
+        VStack(spacing: 0) {
+            labelRow("Total Carbohydrate", $totalCarbs, "g", bold: true).padding(.vertical, 3)
+            thinDivider
+            DVNutrientRow(label: "Dietary Fiber", value: $fiber,  unit: "g", dailyValue: 28, usePercent: $dvMode.fiber, isIndented: true)
+                .font(.subheadline).padding(.vertical, 3)
+            thinDivider
+            labelRow("Total Sugars", $sugar, "g", indent: true).padding(.vertical, 3)
         }
     }
-    
+
     var proteinRow: some View {
         labelRow("Protein", $protein, "g", bold: true)
     }
-    
+
     var vitaminSection: some View {
-        VStack(spacing: 6) {
-            labelRow("Vitamin A", $vitaminA, "μg")
-            labelRow("Vitamin C", $vitaminC, "mg")
-            labelRow("Vitamin D", $vitaminD, "μg")
-            labelRow("Vitamin E", $vitaminE, "mg")
-            labelRow("Vitamin K", $vitaminK, "μg")
-            labelRow("Vitamin B6", $vitaminB6, "mg")
-            labelRow("Vitamin B12", $vitaminB12, "μg")
-            labelRow("Folate", $folate, "μg")
-            labelRow("Choline", $choline, "mg")
-            labelRow("Calcium", $calcium, "mg")
-            labelRow("Iron", $iron, "mg")
-            labelRow("Potassium", $potassium, "mg")
-            labelRow("Magnesium", $magnesium, "mg")
-            labelRow("Zinc", $zinc, "mg")
-            labelRow("Caffeine", $caffeine, "mg")
+        VStack(spacing: 0) {
+            dvRow("Vitamin A",   $vitaminA,   "mcg", 900,  $dvMode.vitaminA)
+            dvRow("Vitamin C",   $vitaminC,   "mg", 90,   $dvMode.vitaminC)
+            dvRow("Vitamin D",   $vitaminD,   "mcg", 20,   $dvMode.vitaminD)
+            dvRow("Vitamin E",   $vitaminE,   "mg", 15,   $dvMode.vitaminE)
+            dvRow("Vitamin K",   $vitaminK,   "mcg", 120,  $dvMode.vitaminK)
+            dvRow("Vitamin B6",  $vitaminB6,  "mg", 1.7,  $dvMode.vitaminB6)
+            dvRow("Vitamin B12", $vitaminB12, "mcg", 2.4,  $dvMode.vitaminB12)
+            dvRow("Folate",      $folate,     "mcg", 400,  $dvMode.folate)
+            dvRow("Choline",     $choline,    "mg", 550,  $dvMode.choline)
+            dvRow("Calcium",     $calcium,    "mg", 1300, $dvMode.calcium)
+            dvRow("Iron",        $iron,       "mg", 18,   $dvMode.iron)
+            dvRow("Potassium",   $potassium,  "mg", 4700, $dvMode.potassium)
+            dvRow("Magnesium",   $magnesium,  "mg", 420,  $dvMode.magnesium)
+            dvRow("Zinc",        $zinc,       "mg", 11,   $dvMode.zinc)
+            labelRow("Caffeine", $caffeine, "mg").padding(.vertical, 3)
         }
     }
-    
+
+    @ViewBuilder
+    func dvRow(_ label: String, _ value: Binding<String>, _ unit: String, _ dv: Double, _ usePercent: Binding<Bool>) -> some View {
+        DVNutrientRow(label: label, value: value, unit: unit, dailyValue: dv, usePercent: usePercent)
+            .font(.subheadline)
+            .padding(.vertical, 3)
+        thinDivider
+    }
+
     func labelRow(
         _ title: String,
         _ binding: Binding<String>,
@@ -1140,56 +1324,56 @@ private extension NutritionEditorView {
         HStack {
             Text(indent ? "  \(title)" : title)
                 .fontWeight(bold ? .semibold : .regular)
-            
             Spacer()
-            
             TextField("0", text: binding)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 80)
-            
             Text(unit)
                 .foregroundStyle(Color("TextSecondary"))
+                .frame(width: 40, alignment: .leading)
         }
         .font(.subheadline)
     }
-    
+
     func saveNutrition() {
-        foodItem.servingDescription = servingDescription
-        let newGramsPerServing = Double(gramsPerServing) ?? foodItem.gramsPerServing
-        foodItem.gramsPerServing = newGramsPerServing
-        
-        let divisor = newGramsPerServing / 100.0
-        
-        foodItem.caloriesPer100g = (Double(calories) ?? foodItem.caloriesPer100g) / divisor
-        foodItem.proteinPer100g = (Double(protein) ?? foodItem.proteinPer100g) / divisor
-        foodItem.carbsPer100g = (Double(totalCarbs) ?? foodItem.carbsPer100g) / divisor
-        foodItem.fatPer100g = (Double(totalFat) ?? foodItem.fatPer100g) / divisor
-        foodItem.fiberPer100g = (Double(fiber) ?? 0) / divisor
-        foodItem.sugarPer100g = (Double(sugar) ?? 0) / divisor
-        
-        foodItem.saturatedFatPer100g = (Double(saturatedFat) ?? 0) / divisor
-        foodItem.transFatPer100g = (Double(transFat) ?? 0) / divisor
-        
-        foodItem.cholesterolPer100g = ((Double(cholesterol) ?? 0) / 1000) / divisor
-        foodItem.sodiumPer100g = ((Double(sodium) ?? 0) / 1000) / divisor
-        
-        foodItem.vitaminAPer100g = ((Double(vitaminA) ?? 0) / 1_000_000) / divisor
-        foodItem.vitaminCPer100g = ((Double(vitaminC) ?? 0) / 1000) / divisor
-        foodItem.vitaminDPer100g = ((Double(vitaminD) ?? 0) / 1_000_000) / divisor
-        foodItem.vitaminEPer100g = ((Double(vitaminE) ?? 0) / 1000) / divisor
-        foodItem.vitaminKPer100g = ((Double(vitaminK) ?? 0) / 1_000_000) / divisor
-        foodItem.vitaminB6Per100g = ((Double(vitaminB6) ?? 0) / 1000) / divisor
-        foodItem.vitaminB12Per100g = ((Double(vitaminB12) ?? 0) / 1_000_000) / divisor
-        foodItem.folatePer100g = ((Double(folate) ?? 0) / 1_000_000) / divisor
-        foodItem.cholinePer100g = ((Double(choline) ?? 0) / 1000) / divisor
-        foodItem.calciumPer100g = ((Double(calcium) ?? 0) / 1000) / divisor
-        foodItem.ironPer100g = ((Double(iron) ?? 0) / 1000) / divisor
-        foodItem.potassiumPer100g = ((Double(potassium) ?? 0) / 1000) / divisor
-        foodItem.magnesiumPer100g = ((Double(magnesium) ?? 0) / 1000) / divisor
-        foodItem.zincPer100g = ((Double(zinc) ?? 0) / 1000) / divisor
-        foodItem.caffeinePer100g = ((Double(caffeine) ?? 0) / 1000) / divisor
-        
+        // All text fields hold values at referenceAmount×base. Divide back to per-1-serving.
+        let refAmt = max(Double(referenceAmount) ?? 1.0, 0.001)
+
+        if let defaultServing = foodItem.defaultServing {
+            defaultServing.label = servingDescription
+            defaultServing.gramWeight = gramsPerServing.isEmpty ? nil : Double(gramsPerServing)
+        }
+
+        // Macros (no DV) — divide entered value by refAmt to get per-1-serving
+        foodItem.calories = (Double(calories)   ?? foodItem.calories * refAmt) / refAmt
+        foodItem.protein  = (Double(protein)    ?? foodItem.protein  * refAmt) / refAmt
+        foodItem.carbs    = (Double(totalCarbs) ?? foodItem.carbs    * refAmt) / refAmt
+        foodItem.fat      = (Double(totalFat)   ?? foodItem.fat      * refAmt) / refAmt
+        foodItem.sugar    = sugar.isEmpty    ? nil : (Double(sugar)    ?? 0) / refAmt
+        foodItem.transFat = transFat.isEmpty ? nil : (Double(transFat) ?? 0) / refAmt
+
+        // DV-aware fields — parseDV handles % conversion, then divide by refAmt
+        foodItem.saturatedFat = parseDV(saturatedFat, dv: 20,   usePercent: dvMode.saturatedFat).map { $0 / refAmt }
+        foodItem.fiber        = parseDV(fiber,        dv: 28,   usePercent: dvMode.fiber).map        { $0 / refAmt }
+        foodItem.cholesterol  = parseDV(cholesterol,  dv: 300,  usePercent: dvMode.cholesterol).map  { $0 / refAmt }
+        foodItem.sodium       = parseDV(sodium,       dv: 2300, usePercent: dvMode.sodium).map       { $0 / refAmt }
+        foodItem.vitaminA     = parseDV(vitaminA,     dv: 900,  usePercent: dvMode.vitaminA).map     { $0 / refAmt }
+        foodItem.vitaminC     = parseDV(vitaminC,     dv: 90,   usePercent: dvMode.vitaminC).map     { $0 / refAmt }
+        foodItem.vitaminD     = parseDV(vitaminD,     dv: 20,   usePercent: dvMode.vitaminD).map     { $0 / refAmt }
+        foodItem.vitaminE     = parseDV(vitaminE,     dv: 15,   usePercent: dvMode.vitaminE).map     { $0 / refAmt }
+        foodItem.vitaminK     = parseDV(vitaminK,     dv: 120,  usePercent: dvMode.vitaminK).map     { $0 / refAmt }
+        foodItem.vitaminB6    = parseDV(vitaminB6,    dv: 1.7,  usePercent: dvMode.vitaminB6).map    { $0 / refAmt }
+        foodItem.vitaminB12   = parseDV(vitaminB12,   dv: 2.4,  usePercent: dvMode.vitaminB12).map   { $0 / refAmt }
+        foodItem.folate       = parseDV(folate,       dv: 400,  usePercent: dvMode.folate).map       { $0 / refAmt }
+        foodItem.choline      = parseDV(choline,      dv: 550,  usePercent: dvMode.choline).map      { $0 / refAmt }
+        foodItem.calcium      = parseDV(calcium,      dv: 1300, usePercent: dvMode.calcium).map      { $0 / refAmt }
+        foodItem.iron         = parseDV(iron,         dv: 18,   usePercent: dvMode.iron).map         { $0 / refAmt }
+        foodItem.potassium    = parseDV(potassium,    dv: 4700, usePercent: dvMode.potassium).map    { $0 / refAmt }
+        foodItem.magnesium    = parseDV(magnesium,    dv: 420,  usePercent: dvMode.magnesium).map    { $0 / refAmt }
+        foodItem.zinc         = parseDV(zinc,         dv: 11,   usePercent: dvMode.zinc).map         { $0 / refAmt }
+        foodItem.caffeine     = caffeine.isEmpty ? nil : (Double(caffeine) ?? 0) / refAmt
+
         dismiss()
     }
 }

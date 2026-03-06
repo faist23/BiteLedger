@@ -71,19 +71,19 @@ struct NutritionDashboard: View {
     // MARK: - Computed Properties
     
     private var totalCalories: Double {
-        logs.reduce(0) { $0 + $1.calories }
+        logs.reduce(0) { $0 + $1.caloriesAtLogTime }
     }
     
     private var totalProtein: Double {
-        logs.reduce(0) { $0 + $1.protein }
+        logs.reduce(0) { $0 + $1.proteinAtLogTime }
     }
     
     private var totalCarbs: Double {
-        logs.reduce(0) { $0 + $1.carbs }
+        logs.reduce(0) { $0 + $1.carbsAtLogTime }
     }
     
     private var totalFat: Double {
-        logs.reduce(0) { $0 + $1.fat }
+        logs.reduce(0) { $0 + $1.fatAtLogTime }
     }
     
     // Macro percentages (for macro balance tile)
@@ -120,43 +120,33 @@ struct NutritionDashboard: View {
         case .protein: return totalProtein
         case .carbs: return totalCarbs
         case .fat: return totalFat
-        case .fiber: return logs.reduce(0) { $0 + ($1.fiber ?? 0) }
-        case .sugar: return logs.reduce(0) { $0 + ($1.sugar ?? 0) }
-        case .saturatedFat: return logs.reduce(0) { $0 + ($1.saturatedFat ?? 0) }
-        case .transFat: return logs.reduce(0) { $0 + ($1.transFat ?? 0) }
-        case .monounsaturatedFat: return logs.reduce(0) { $0 + ($1.monounsaturatedFat ?? 0) }
-        case .polyunsaturatedFat: return logs.reduce(0) { $0 + ($1.polyunsaturatedFat ?? 0) }
+        case .fiber: return logs.reduce(0) { $0 + ($1.fiberAtLogTime ?? 0) }
+        case .sugar: return logs.reduce(0) { $0 + ($1.sugarAtLogTime ?? 0) }
+        case .saturatedFat: return logs.reduce(0) { $0 + ($1.saturatedFatAtLogTime ?? 0) }
+        case .transFat: return logs.reduce(0) { $0 + ($1.transFatAtLogTime ?? 0) }
+        case .monounsaturatedFat: return logs.reduce(0) { $0 + ($1.monounsaturatedFatAtLogTime ?? 0) }
+        case .polyunsaturatedFat: return logs.reduce(0) { $0 + ($1.polyunsaturatedFatAtLogTime ?? 0) }
         
-        // Nutrients stored in grams, displayed in mg (×1000)
-        case .sodium: rawValue = logs.reduce(0) { $0 + ($1.sodium ?? 0) }
-        case .potassium: rawValue = logs.reduce(0) { $0 + ($1.potassium ?? 0) }
-        case .calcium: rawValue = logs.reduce(0) { $0 + ($1.calcium ?? 0) }
-        case .iron: rawValue = logs.reduce(0) { $0 + ($1.iron ?? 0) }
-        case .magnesium: rawValue = logs.reduce(0) { $0 + ($1.magnesium ?? 0) }
-        case .zinc: rawValue = logs.reduce(0) { $0 + ($1.zinc ?? 0) }
-        case .vitaminC: rawValue = logs.reduce(0) { $0 + ($1.vitaminC ?? 0) }
-        case .vitaminD: rawValue = logs.reduce(0) { $0 + ($1.vitaminD ?? 0) }
-        case .vitaminE: rawValue = logs.reduce(0) { $0 + ($1.vitaminE ?? 0) }
-        case .vitaminB6: rawValue = logs.reduce(0) { $0 + ($1.vitaminB6 ?? 0) }
-        case .choline: rawValue = logs.reduce(0) { $0 + ($1.choline ?? 0) }
-        case .caffeine: rawValue = logs.reduce(0) { $0 + ($1.caffeine ?? 0) }
-        case .cholesterol: rawValue = logs.reduce(0) { $0 + ($1.cholesterol ?? 0) }
-            
-        // Nutrients stored in grams, displayed in mcg (×1,000,000)
-        case .vitaminA: rawValue = logs.reduce(0) { $0 + ($1.vitaminA ?? 0) }
-        case .vitaminK: rawValue = logs.reduce(0) { $0 + ($1.vitaminK ?? 0) }
-        case .vitaminB12: rawValue = logs.reduce(0) { $0 + ($1.vitaminB12 ?? 0) }
-        case .folate: rawValue = logs.reduce(0) { $0 + ($1.folate ?? 0) }
-        }
-        
-        // Apply unit conversion based on display unit
-        switch nutrient.unit {
-        case "mg":
-            return rawValue * 1000  // grams to milligrams
-        case "mcg":
-            return rawValue * 1_000_000  // grams to micrograms
-        default:
-            return rawValue  // grams remain as grams
+        // Nutrients stored in their natural units (mg or mcg) - no conversion needed
+        case .sodium: return logs.reduce(0) { $0 + ($1.sodiumAtLogTime ?? 0) }
+        case .potassium: return logs.reduce(0) { $0 + ($1.potassiumAtLogTime ?? 0) }
+        case .calcium: return logs.reduce(0) { $0 + ($1.calciumAtLogTime ?? 0) }
+        case .iron: return logs.reduce(0) { $0 + ($1.ironAtLogTime ?? 0) }
+        case .magnesium: return logs.reduce(0) { $0 + ($1.magnesiumAtLogTime ?? 0) }
+        case .zinc: return logs.reduce(0) { $0 + ($1.zincAtLogTime ?? 0) }
+        case .vitaminC: return logs.reduce(0) { $0 + ($1.vitaminCAtLogTime ?? 0) }
+        case .vitaminD: return logs.reduce(0) { $0 + ($1.vitaminDAtLogTime ?? 0) }
+        case .vitaminE: return logs.reduce(0) { $0 + ($1.vitaminEAtLogTime ?? 0) }
+        case .vitaminB6: return logs.reduce(0) { $0 + ($1.vitaminB6AtLogTime ?? 0) }
+        case .choline: return logs.reduce(0) { $0 + ($1.cholineAtLogTime ?? 0) }
+        case .caffeine: return logs.reduce(0) { $0 + ($1.caffeineAtLogTime ?? 0) }
+        case .cholesterol: return logs.reduce(0) { $0 + ($1.cholesterolAtLogTime ?? 0) }
+
+        // Nutrients stored in mcg - no conversion needed
+        case .vitaminA: return logs.reduce(0) { $0 + ($1.vitaminAAtLogTime ?? 0) }
+        case .vitaminK: return logs.reduce(0) { $0 + ($1.vitaminKAtLogTime ?? 0) }
+        case .vitaminB12: return logs.reduce(0) { $0 + ($1.vitaminB12AtLogTime ?? 0) }
+        case .folate: return logs.reduce(0) { $0 + ($1.folateAtLogTime ?? 0) }
         }
     }
     
@@ -204,7 +194,7 @@ struct MacroBalanceTile: View {
     }
     
     private func macroRow(_ name: String, _ percent: Double, _ color: String) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 3) {
             Text(name)
                 .font(.system(size: 13))
                 .foregroundStyle(Color(color))

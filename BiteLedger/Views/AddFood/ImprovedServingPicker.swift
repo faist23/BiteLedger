@@ -11,6 +11,7 @@ struct ImprovedServingPicker: View {
     let existingFoodItem: FoodItem? // If provided, reuse this instead of creating new
     let initialServingAmount: Double? // If provided, use this as the default amount
     let initialPortionId: Int? // If provided, use this as the initial selected portion
+    let initialUnit: String? // If provided, use this as the initial unit (e.g., "g", "oz", "serving")
     let onAdd: (AddedFoodItem) -> Void
     
     @State private var wholeNumber: Int
@@ -22,6 +23,9 @@ struct ImprovedServingPicker: View {
     private let foodType: FoodType
     private let productServingGrams: Double?
     private let hasPortions: Bool
+    private let hasServingSize: Bool  // True if product has a serving size (even without grams)
+    private let parsedServingAmount: Double?   // e.g. 8 for "8 fl oz"
+    private let parsedServingUnit: ServingUnit? // e.g. .fluidOunce for "8 fl oz" (nil if .serving)
     
     enum Fraction: Double, CaseIterable, Identifiable {
         case zero = 0.0
@@ -45,12 +49,13 @@ struct ImprovedServingPicker: View {
         }
     }
     
-    init(product: ProductInfo, mealType: MealType, existingFoodItem: FoodItem? = nil, initialServingAmount: Double? = nil, initialPortionId: Int? = nil, onAdd: @escaping (AddedFoodItem) -> Void) {
+    init(product: ProductInfo, mealType: MealType, existingFoodItem: FoodItem? = nil, initialServingAmount: Double? = nil, initialPortionId: Int? = nil, initialUnit: String? = nil, onAdd: @escaping (AddedFoodItem) -> Void) {
         self.product = product
         self.mealType = mealType
         self.existingFoodItem = existingFoodItem
         self.initialServingAmount = initialServingAmount
         self.initialPortionId = initialPortionId
+        self.initialUnit = initialUnit
         self.onAdd = onAdd
         
         // Infer food type for density calculations
@@ -58,6 +63,9 @@ struct ImprovedServingPicker: View {
         
         // Check if product has portions
         self.hasPortions = (product.portions?.count ?? 0) > 0
+        
+        // Check if product has a serving size
+        self.hasServingSize = product.servingSize != nil
         
         // Set initial portion - use initialPortionId if provided, otherwise first portion
         if let portionId = initialPortionId,
@@ -92,8 +100,26 @@ struct ImprovedServingPicker: View {
             print("✅ Setting initial amount to: \(whole) + \(closestFraction.displayName)")
             _wholeNumber = State(initialValue: whole)
             _fraction = State(initialValue: closestFraction)
-            _selectedUnit = State(initialValue: parsed.unit)
-            self.productServingGrams = parsed.grams
+            
+            // Use initialUnit if provided, otherwise use parsed unit
+            if let unitString = initialUnit,
+               let unit = ServingUnit.fromAbbreviation(unitString) {
+                print("✅ Using initial unit: \(unitString)")
+                _selectedUnit = State(initialValue: unit)
+            } else {
+                _selectedUnit = State(initialValue: parsed.unit)
+            }
+            
+            // Prefer existingFoodItem's baseServingGrams over parsed value
+            // This ensures when re-adding from My Foods, we use the stored gram weight
+            if let existingGrams = existingFoodItem?.defaultServing?.gramWeight, existingGrams > 0 {
+                print("✅ Using existing food item's baseServingGrams: \(existingGrams)")
+                self.productServingGrams = existingGrams
+            } else {
+                self.productServingGrams = parsed.grams
+            }
+            self.parsedServingAmount = parsed.amount
+            self.parsedServingUnit = (parsed.unit == .serving) ? nil : parsed.unit
         } else {
             print("⚠️ Failed to parse serving size, using initial amount or defaulting to 100g")
             // Use initialServingAmount if provided, otherwise default to 100g
@@ -104,39 +130,496 @@ struct ImprovedServingPicker: View {
             
             _wholeNumber = State(initialValue: whole)
             _fraction = State(initialValue: closestFraction)
-            _selectedUnit = State(initialValue: .gram)
+            
+            // Use initialUnit if provided, otherwise default to gram
+            if let unitString = initialUnit,
+               let unit = ServingUnit.fromAbbreviation(unitString) {
+                print("✅ Using initial unit: \(unitString)")
+                _selectedUnit = State(initialValue: unit)
+            } else {
+                _selectedUnit = State(initialValue: .gram)
+            }
+            
             self.productServingGrams = amount
+            self.parsedServingAmount = nil
+            self.parsedServingUnit = nil
         }
     }
-    
+
     private var amountValue: Double {
         Double(wholeNumber) + fraction.rawValue
     }
-    
+
+    /// Converts the current picker state (amountValue + selectedUnit) into a
+    /// number-of-product-servings for use with per-serving nutrition data.
+    private var resolvedServingCount: Double {
+        // .serving mode or a USDA portion: amountValue is already the serving count
+        if selectedUnit == .serving || selectedPortion != nil { return amountValue }
+        // Same unit as the natural serving (e.g. user picks fl oz, label says "8 fl oz")
+        if let parsedUnit = parsedServingUnit,
+           let parsedAmount = parsedServingAmount,
+           parsedUnit == selectedUnit, parsedAmount > 0 {
+            return amountValue / parsedAmount
+        }
+        // Gram-weight path (serving has an explicit gramWeight)
+        if let servingGrams = productServingGrams, servingGrams > 0 {
+            return totalGrams / servingGrams
+        }
+        // Fallback: treat amountValue as serving count
+        return amountValue
+    }
+
     private var totalGrams: Double {
         // If we have a selected portion, use its gram weight
         if let portion = selectedPortion {
             return amountValue * portion.gramWeight
         }
         
+        // If we have an existing FoodItem with serving sizes, try to find a matching one
+        if let existingFoodItem = existingFoodItem,
+           !existingFoodItem.servingSizes.isEmpty,
+           let baseGrams = existingFoodItem.defaultServing?.gramWeight {
+            
+            // Look for a serving size that matches the selected unit
+            let unitName = selectedUnit.rawValue.lowercased()
+            
+            if selectedUnit == .serving {
+                // Use the default serving (baseMultiplier = 1.0)
+                return amountValue * baseGrams
+            } else if let matchingServing = existingFoodItem.servingSizes.first(where: { serving in
+                serving.label.lowercased().contains(unitName)
+            }), let gramWeight = matchingServing.gramWeight {
+                // Found a matching serving size - use its gram weight
+                return amountValue * gramWeight
+            }
+        }
+        
         // Otherwise use the standard unit conversion
-        if selectedUnit == .serving, let servingGrams = productServingGrams {
-            return amountValue * servingGrams
+        if selectedUnit == .serving {
+            if let servingGrams = productServingGrams, servingGrams > 0 {
+                return amountValue * servingGrams
+            } else {
+                // No gram data for serving (e.g., some FatSecret items)
+                // For per-serving items without gram weights, store the serving count as "grams"
+                // The FoodItem.nutritionFor() method will interpret this correctly
+                return amountValue
+            }
         }
         let density = ServingUnit.densityFor(foodType: foodType)
         return selectedUnit.toGrams(amount: amountValue, density: density)
     }
     
     private var nutritionMultiplier: Double {
-        totalGrams / 100.0
+        let hasServingData = product.nutriments?.energyKcalServing?.value ?? 0 > 0
+        if hasServingData {
+            // resolvedServingCount converts (amountValue + selectedUnit) → number of product servings
+            return resolvedServingCount
+        } else if totalGrams > 0 {
+            return totalGrams / 100.0
+        } else {
+            return 1.0
+        }
     }
     
     private var calculatedNutrition: NutritionFacts? {
-        product.nutriments?.toNutritionFacts(servingMultiplier: nutritionMultiplier)
+        product.nutriments?.toNutritionFacts(servingMultiplier: nutritionMultiplier, servingGrams: productServingGrams ?? 0)
     }
     
     private var nutritionPer100g: NutritionFacts? {
-        product.nutriments?.toNutritionFacts(servingMultiplier: 1.0)
+        product.nutriments?.toNutritionFacts(servingMultiplier: 1.0, servingGrams: productServingGrams ?? 0)
+    }
+    
+    private var currentServingDisplayText: String {
+        // If a portion is selected, show it with amount
+        if let portion = selectedPortion {
+            return formatAmount(amountValue) + " " + portion.modifier
+        }
+        
+        // Otherwise format based on selected unit
+        let amountText = formatAmount(amountValue)
+        let unitText = displayNameForUnit(selectedUnit)
+        
+        return "\(amountText) \(unitText)"
+    }
+    
+    private var nutritionLabel: some View {
+        ElevatedCard(padding: 0, cornerRadius: 20) {
+            VStack(alignment: .leading, spacing: 0) {
+                // Nutrition Facts Header
+                HStack {
+                    Text("Nutrition Facts")
+                        .font(.system(size: 32, weight: .black))
+                        .foregroundStyle(Color("TextPrimary"))
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                
+                // Heavy divider under header
+                Rectangle()
+                    .fill(Color("TextPrimary"))
+                    .frame(height: 8)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+                
+                VStack(spacing: 0) {
+                    nutritionFactsContent
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+            }
+        }
+    }
+    
+    private var nutritionFactsContent: some View {
+        VStack(spacing: 0) {
+            if let nutrition = calculatedNutrition {
+                // Serving size info
+                Text(currentServingDisplayText)
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 8)
+                
+                Text("Amount per serving")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 4)
+                
+                // Calories
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Calories")
+                        .font(.system(size: 32, weight: .black))
+                    Spacer()
+                    Text("\(Int(nutrition.caloriesPer100g))")
+                        .font(.system(size: 44, weight: .black))
+                }
+                .padding(.vertical, 4)
+                
+                // Heavy divider
+                Rectangle()
+                    .fill(Color("TextPrimary"))
+                    .frame(height: 6)
+                    .padding(.vertical, 4)
+                
+                // % Daily Value header
+                HStack {
+                    Spacer()
+                    Text("% Daily Value*")
+                        .font(.system(size: 12, weight: .bold))
+                }
+                .padding(.bottom, 4)
+                
+                // Thin divider
+                thinDivider()
+                
+                // Macronutrients
+                nutrientRow("Total Fat", nutrition.fatPer100g, "g", bold: true)
+                thinDivider()
+                
+                if let satFat = nutrition.saturatedFatPer100g, satFat > 0 {
+                    indentedNutrientRow("Saturated Fat", satFat, "g")
+                    thinDivider()
+                }
+                
+                if let sodium = nutrition.sodiumPer100g, sodium > 0 {
+                    nutrientRow("Sodium", sodium * 1000, "mg", bold: true)
+                    thinDivider()
+                }
+                
+                nutrientRow("Total Carbohydrate", nutrition.carbsPer100g, "g", bold: true)
+                thinDivider()
+                
+                if let fiber = nutrition.fiberPer100g, fiber > 0 {
+                    indentedNutrientRow("Dietary Fiber", fiber, "g")
+                    thinDivider()
+                }
+                
+                if let sugar = nutrition.sugarPer100g, sugar > 0 {
+                    indentedNutrientRow("Total Sugars", sugar, "g")
+                    thinDivider()
+                }
+                
+                nutrientRow("Protein", nutrition.proteinPer100g, "g", bold: true)
+                
+                // Heavy divider before vitamins/minerals
+                Rectangle()
+                    .fill(Color("TextPrimary"))
+                    .frame(height: 8)
+                    .padding(.vertical, 4)
+                
+                // Vitamins and Minerals
+                VStack(spacing: 0) {
+                    if let vitaminD = product.nutriments?.vitaminD100g?.value, vitaminD > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Vitamin D", vitaminD * multiplier * 1_000_000, "mcg")
+                        thinDivider()
+                    }
+                    
+                    if let calcium = product.nutriments?.calcium100g?.value, calcium > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Calcium", calcium * multiplier * 1000, "mg")
+                        thinDivider()
+                    } else if let calciumMg = product.nutriments?.calciumServing?.value, calciumMg > 0 {
+                        nutrientRow("Calcium", calciumMg * resolvedServingCount, "mg")
+                        thinDivider()
+                    }
+
+                    if let iron = product.nutriments?.iron100g?.value, iron > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Iron", iron * multiplier * 1000, "mg")
+                        thinDivider()
+                    } else if let ironMg = product.nutriments?.ironServing?.value, ironMg > 0 {
+                        nutrientRow("Iron", ironMg * resolvedServingCount, "mg")
+                        thinDivider()
+                    }
+
+                    if let potassium = product.nutriments?.potassium100g?.value, potassium > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Potassium", potassium * multiplier * 1000, "mg")
+                        thinDivider()
+                    } else if let potassiumMg = product.nutriments?.potassiumServing?.value, potassiumMg > 0 {
+                        nutrientRow("Potassium", potassiumMg * resolvedServingCount, "mg")
+                        thinDivider()
+                    }
+
+                    if let vitaminA = product.nutriments?.vitaminA100g?.value, vitaminA > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Vitamin A", vitaminA * multiplier * 1_000_000, "mcg")
+                        thinDivider()
+                    } else if let vitaminAMcg = product.nutriments?.vitaminAServing?.value, vitaminAMcg > 0 {
+                        nutrientRow("Vitamin A", vitaminAMcg * resolvedServingCount, "mcg")
+                        thinDivider()
+                    }
+
+                    if let vitaminC = product.nutriments?.vitaminC100g?.value, vitaminC > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Vitamin C", vitaminC * multiplier * 1000, "mg")
+                        thinDivider()
+                    } else if let vitaminCMg = product.nutriments?.vitaminCServing?.value, vitaminCMg > 0 {
+                        nutrientRow("Vitamin C", vitaminCMg * resolvedServingCount, "mg")
+                        thinDivider()
+                    }
+                    
+                    if let vitaminE = product.nutriments?.vitaminE100g?.value, vitaminE > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Vitamin E", vitaminE * multiplier * 1000, "mg")
+                        thinDivider()
+                    }
+                    
+                    if let vitaminK = product.nutriments?.vitaminK100g?.value, vitaminK > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Vitamin K", vitaminK * multiplier * 1_000_000, "mcg")
+                        thinDivider()
+                    }
+                    
+                    if let vitaminB6 = product.nutriments?.vitaminB6100g?.value, vitaminB6 > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Vitamin B6", vitaminB6 * multiplier * 1000, "mg")
+                        thinDivider()
+                    }
+                    
+                    if let vitaminB12 = product.nutriments?.vitaminB12100g?.value, vitaminB12 > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Vitamin B12", vitaminB12 * multiplier * 1_000_000, "mcg")
+                        thinDivider()
+                    }
+                    
+                    if let folate = product.nutriments?.folate100g?.value, folate > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Folate", folate * multiplier * 1_000_000, "mcg")
+                        thinDivider()
+                    }
+                    
+                    if let choline = product.nutriments?.choline100g?.value, choline > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Choline", choline * multiplier * 1000, "mg")
+                        thinDivider()
+                    }
+                    
+                    if let magnesium = product.nutriments?.magnesium100g?.value, magnesium > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Magnesium", magnesium * multiplier * 1000, "mg")
+                        thinDivider()
+                    }
+                    
+                    if let zinc = product.nutriments?.zinc100g?.value, zinc > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Zinc", zinc * multiplier * 1000, "mg")
+                        thinDivider()
+                    }
+                    
+                    if let caffeine = product.nutriments?.caffeine100g?.value, caffeine > 0 {
+                        let multiplier = nutritionMultiplier(for: nutrition)
+                        nutrientRow("Caffeine", caffeine * multiplier * 1000, "mg")
+                        thinDivider()
+                    }
+                }
+                
+                // Heavy divider at bottom
+                Rectangle()
+                    .fill(Color("TextPrimary"))
+                    .frame(height: 4)
+                    .padding(.top, 4)
+                
+                // FDA Disclaimer
+                Text("* The % Daily Value (DV) tells you how much a nutrient in a serving of food contributes to a daily diet. 2,000 calories a day is used for general nutrition advice.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Color("TextSecondary"))
+                    .padding(.top, 8)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+    
+    // Helper to scale vitamins/minerals (always per-100g fields) for the current amount
+    private func nutritionMultiplier(for nutrition: NutritionFacts) -> Double {
+        totalGrams > 0 ? totalGrams / 100.0 : 1.0
+    }
+    
+    // Helper functions
+    private func thinDivider() -> some View {
+        Rectangle()
+            .fill(Color("TextPrimary"))
+            .frame(height: 1)
+    }
+    
+    private func nutrientRow(_ label: String, _ value: Double, _ unit: String, bold: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(label)
+                .font(.system(size: 14))
+                .fontWeight(bold ? .black : .regular)
+            
+            Spacer()
+            
+            Text(formatValue(value) + unit)
+                .font(.system(size: 14))
+                .fontWeight(bold ? .bold : .regular)
+                .frame(minWidth: 60, alignment: .trailing)
+            
+            if let percent = percentDV(value, for: label) {
+                Text("\(percent)%")
+                    .font(.system(size: 13))
+                    .fontWeight(.light)
+                    .foregroundStyle(Color("TextSecondary"))
+                    .frame(width: 50, alignment: .trailing)
+            } else {
+                Text("")
+                    .frame(width: 50)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+    
+    private func indentedNutrientRow(_ label: String, _ value: Double, _ unit: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(label)
+                .font(.system(size: 14))
+                .padding(.leading, 20)
+            
+            Spacer()
+            
+            Text(formatValue(value) + unit)
+                .font(.system(size: 14))
+                .frame(minWidth: 60, alignment: .trailing)
+            
+            if let percent = percentDV(value, for: label) {
+                Text("\(percent)%")
+                    .font(.system(size: 13))
+                    .fontWeight(.light)
+                    .foregroundStyle(Color("TextSecondary"))
+                    .frame(width: 50, alignment: .trailing)
+            } else {
+                Text("")
+                    .frame(width: 50)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+    
+    private func formatValue(_ value: Double) -> String {
+        if value >= 100 {
+            return "\(Int(value))"
+        } else if value >= 10 {
+            return String(format: "%.1f", value)
+        } else {
+            return String(format: "%.2f", value)
+        }
+    }
+    
+    private func fdaDailyValue(for nutrient: String) -> Double? {
+        switch nutrient {
+        case "Total Fat": return 78
+        case "Saturated Fat": return 20
+        case "Cholesterol": return 300
+        case "Sodium": return 2300
+        case "Total Carbohydrate": return 275
+        case "Dietary Fiber": return 28
+        case "Total Sugars": return 50
+        case "Protein": return 50
+        case "Vitamin A": return 900
+        case "Vitamin C": return 90
+        case "Vitamin D": return 20
+        case "Vitamin E": return 15
+        case "Vitamin K": return 120
+        case "Vitamin B6": return 1.7
+        case "Vitamin B12": return 2.4
+        case "Folate": return 400
+        case "Choline": return 550
+        case "Calcium": return 1300
+        case "Iron": return 18
+        case "Potassium": return 4700
+        case "Magnesium": return 420
+        case "Zinc": return 11
+        default: return nil
+        }
+    }
+    
+    private func percentDV(_ value: Double, for label: String) -> Int? {
+        guard let dv = fdaDailyValue(for: label), dv > 0 else { return nil }
+        return Int((value / dv * 100).rounded())
+    }
+    
+    private func formatAmount(_ value: Double) -> String {
+        let whole = Int(value)
+        let fractionalPart = value - Double(whole)
+        
+        if fractionalPart < 0.01 {
+            return "\(whole)"
+        }
+        
+        // Find closest fraction for display
+        let fractionText: String
+        if abs(fractionalPart - 0.25) < 0.01 {
+            fractionText = "¼"
+        } else if abs(fractionalPart - 0.33) < 0.02 {
+            fractionText = "⅓"
+        } else if abs(fractionalPart - 0.5) < 0.01 {
+            fractionText = "½"
+        } else if abs(fractionalPart - 0.67) < 0.02 {
+            fractionText = "⅔"
+        } else if abs(fractionalPart - 0.75) < 0.01 {
+            fractionText = "¾"
+        } else {
+            return String(format: "%.2f", value)
+        }
+        
+        if whole == 0 {
+            return fractionText
+        } else {
+            return "\(whole) \(fractionText)"
+        }
+    }
+    
+    private func displayNameForUnit(_ unit: ServingUnit) -> String {
+        // For .serving, we want to show the actual serving description
+        if unit == .serving {
+            // Parse the product's serving description to get the unit name
+            if let parsed = ServingSizeParser.parse(product.servingSize) {
+                return parsed.unit.abbreviation.capitalized
+            }
+            return "Serving"
+        }
+        return unit.rawValue
     }
     
     var body: some View {
@@ -173,37 +656,14 @@ struct ImprovedServingPicker: View {
                 .padding()
                 .background(Color(.systemGroupedBackground))
                 
-                Spacer()
-                
-                // Nutrition display - centered
-                if let nutrition = calculatedNutrition {
-                    VStack(spacing: 16) {
-                        // Large calorie display
-                        VStack(spacing: 4) {
-                            Text("\(Int(nutrition.caloriesPer100g))")
-                                .font(.system(size: 48, weight: .bold))
-                            Text("Calories")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        
-                        // Macros
-                        HStack(spacing: 20) {
-                            MacroColumn(label: "Total Fat", value: nutrition.fatPer100g, unit: "g")
-                            Divider()
-                            MacroColumn(label: "Total Carbs", value: nutrition.carbsPer100g, unit: "g")
-                            Divider()
-                            MacroColumn(label: "Protein", value: nutrition.proteinPer100g, unit: "g")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
-                        .padding(.horizontal)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        nutritionLabel
                     }
-                    .padding(.vertical)
+                    .padding()
                 }
                 
-                Spacer()
+                Spacer(minLength: 16)
                 
                 // Portion size selector (if portions are available)
                 if hasPortions, let portions = product.portions {
@@ -305,17 +765,73 @@ struct ImprovedServingPicker: View {
     private func getAvailableUnits() -> [ServingUnit] {
         var units: [ServingUnit] = []
         
-        // Always include weight units
-        units.append(.gram)
-        units.append(.ounce)
+        // If we have an existing FoodItem with custom portions, prioritize showing those
+        if let existingFoodItem = existingFoodItem,
+           !existingFoodItem.servingSizes.isEmpty {
+            // Add units based on the defined portion sizes
+            for servingSize in existingFoodItem.servingSizes {
+                let measure = servingSize.label.lowercased()
+                
+                // Map common portion names to ServingUnit
+                if measure.contains("cup") {
+                    if !units.contains(.cup) {
+                        units.append(.cup)
+                    }
+                } else if measure.contains("tablespoon") || measure.contains("tbsp") {
+                    if !units.contains(.tablespoon) {
+                        units.append(.tablespoon)
+                    }
+                } else if measure.contains("teaspoon") || measure.contains("tsp") {
+                    if !units.contains(.teaspoon) {
+                        units.append(.teaspoon)
+                    }
+                } else if measure.contains("oz") && !measure.contains("fl") {
+                    if !units.contains(.ounce) {
+                        units.append(.ounce)
+                    }
+                } else if measure.contains("fl oz") || measure.contains("fluid ounce") {
+                    if !units.contains(.fluidOunce) {
+                        units.append(.fluidOunce)
+                    }
+                } else if measure.contains("gram") || measure == "g" {
+                    if !units.contains(.gram) {
+                        units.append(.gram)
+                    }
+                } else if servingSize.isDefault {
+                    // Default serving gets shown as "Serving"
+                    if !units.contains(.serving) {
+                        units.insert(.serving, at: 0)
+                    }
+                }
+            }
+        }
+        
+        // Always include weight units if not already added
+        if !units.contains(.gram) {
+            units.append(.gram)
+        }
+        if !units.contains(.ounce) {
+            units.append(.ounce)
+        }
         
         // Add volume units for liquids and semi-liquids
         if foodType == .liquid || foodType == .milk || foodType == .peanutButter || foodType == .honey || foodType == .oil {
-            units.append(contentsOf: [.cup, .fluidOunce, .tablespoon, .teaspoon])
+            if !units.contains(.cup) {
+                units.append(.cup)
+            }
+            if !units.contains(.fluidOunce) {
+                units.append(.fluidOunce)
+            }
+            if !units.contains(.tablespoon) {
+                units.append(.tablespoon)
+            }
+            if !units.contains(.teaspoon) {
+                units.append(.teaspoon)
+            }
         }
         
-        // Add serving if product has one
-        if productServingGrams != nil {
+        // Add serving if product has one (even without grams, e.g., FatSecret items)
+        if hasServingSize && !units.contains(.serving) {
             units.insert(.serving, at: 0)
         }
         
@@ -323,57 +839,201 @@ struct ImprovedServingPicker: View {
     }
     
     private func addToMeal() {
-        guard let per100gNutrition = nutritionPer100g else { return }
-        
-        // If we have an existing FoodItem, reuse it to preserve original serving description
+        guard let calculatedNutrition = calculatedNutrition else { return }
+
+        // If we have an existing FoodItem, reuse it
         let foodItem: FoodItem
         if let existing = existingFoodItem {
             foodItem = existing
         } else {
-            // Create new FoodItem for API results
-            let gramsPerSingleUnit: Double
-            if selectedUnit == .serving, let servingGrams = productServingGrams {
-                // Use the actual serving size from the product
-                gramsPerSingleUnit = servingGrams
-            } else {
-                // Calculate from unit conversion
-                let density = ServingUnit.densityFor(foodType: foodType)
-                gramsPerSingleUnit = selectedUnit.toGrams(amount: 1.0, density: density)
-            }
-            
-            // Determine source based on product code
-            let source = product.code.hasPrefix("usda_") ? "USDA" : "OpenFoodFacts"
-            
-            foodItem = FoodItem(
-                name: product.displayName,
-                brand: product.brands,
-                barcode: product.code,
-                nutritionPer100g: per100gNutrition,
-                servingSize: gramsPerSingleUnit,
-                servingSizeUnit: selectedUnit.abbreviation,
-                source: source,
-                imageURL: product.imageUrl
+            // Check if a FoodItem with this barcode already exists in the database
+            let barcode = product.code
+            let descriptor = FetchDescriptor<FoodItem>(
+                predicate: #Predicate { $0.barcode == barcode }
             )
-            
-            // Store portions if available (USDA foods)
-            if let productPortions = product.portions {
-                foodItem.portions = productPortions.map { portion in
-                    StoredPortion(
-                        id: portion.id,
-                        amount: portion.amount,
-                        modifier: portion.modifier,
-                        gramWeight: portion.gramWeight
-                    )
+
+            if let existingByBarcode = try? modelContext.fetch(descriptor).first {
+                print("✅ Found existing FoodItem by barcode: \(existingByBarcode.name)")
+                foodItem = existingByBarcode
+                // Backfill any micronutrient fields that are nil (e.g. food was saved before
+                // per-serving micronutrient support was added to FatSecretService).
+                let reuseScale = existingByBarcode.defaultServing?.gramWeight.map { $0 / 100.0 } ?? 1.0
+                let n = product.nutriments
+                if existingByBarcode.fiber        == nil { existingByBarcode.fiber        = n?.fiber100g.map        { $0.value * reuseScale }       ?? n?.fiberServing.map        { $0.value } }
+                if existingByBarcode.sugar        == nil { existingByBarcode.sugar        = n?.sugars100g.map       { $0.value * reuseScale }       ?? n?.sugarsServing.map       { $0.value } }
+                if existingByBarcode.saturatedFat == nil { existingByBarcode.saturatedFat = n?.saturatedFat100g.map { $0.value * reuseScale }       ?? n?.saturatedFatServing.map { $0.value } }
+                if existingByBarcode.sodium       == nil { existingByBarcode.sodium       = n?.sodium100g.map       { $0.value * 1000.0 * reuseScale } ?? n?.sodiumServing.map    { $0.value * 1000.0 } }
+                if existingByBarcode.cholesterol  == nil { existingByBarcode.cholesterol  = n?.cholesterol100g.map  { $0.value * 1000.0 * reuseScale } ?? n?.cholesterolServing.map { $0.value } }
+                if existingByBarcode.potassium    == nil { existingByBarcode.potassium    = n?.potassium100g.map    { $0.value * 1000.0 * reuseScale } ?? n?.potassiumServing.map  { $0.value } }
+                if existingByBarcode.calcium      == nil { existingByBarcode.calcium      = n?.calcium100g.map      { $0.value * 1000.0 * reuseScale } ?? n?.calciumServing.map    { $0.value } }
+                if existingByBarcode.iron         == nil { existingByBarcode.iron         = n?.iron100g.map         { $0.value * 1000.0 * reuseScale } ?? n?.ironServing.map       { $0.value } }
+                if existingByBarcode.vitaminA     == nil { existingByBarcode.vitaminA     = n?.vitaminA100g.map     { $0.value * 1_000_000.0 * reuseScale } ?? n?.vitaminAServing.map { $0.value } }
+                if existingByBarcode.vitaminC     == nil { existingByBarcode.vitaminC     = n?.vitaminC100g.map     { $0.value * 1000.0 * reuseScale } ?? n?.vitaminCServing.map   { $0.value } }
+            } else {
+                // Create new FoodItem with serving-based nutrition
+                // Convert API's per-100g or per-serving nutrition to base serving nutrition
+
+                // Determine base serving description and grams
+                let baseServingDesc: String
+                let baseServingGrams: Double?
+
+                if let portion = selectedPortion {
+                    // User selected a USDA portion
+                    baseServingDesc = "\(portion.amount) \(portion.modifier)"
+                    baseServingGrams = portion.gramWeight
+                } else if selectedUnit == .serving, let servingSize = product.servingSize {
+                    // Use the product's natural serving
+                    baseServingDesc = servingSize
+                    baseServingGrams = productServingGrams
+                } else if let servingSize = product.servingSize {
+                    // Product has a serving size, use it as base
+                    baseServingDesc = servingSize
+                    baseServingGrams = productServingGrams
+                } else {
+                    // No serving info, default to 100g
+                    baseServingDesc = "100g"
+                    baseServingGrams = 100.0
                 }
 
+                // Calculate nutrition for ONE base serving
+                // If we have per-100g data, convert it to per-serving
+                let perServingNutrition: (calories: Double, protein: Double, carbs: Double, fat: Double)
+
+                if let baseGrams = baseServingGrams, baseGrams > 0 {
+                    // Convert per-100g to per-serving using gram weight
+                    let servingMultiplier = baseGrams / 100.0
+
+                    if let nutriments = product.nutriments {
+                        let nutritionFacts = nutriments.toNutritionFacts(servingMultiplier: 1.0)
+                        perServingNutrition = (
+                            calories: nutritionFacts.caloriesPer100g * servingMultiplier,
+                            protein: nutritionFacts.proteinPer100g * servingMultiplier,
+                            carbs: nutritionFacts.carbsPer100g * servingMultiplier,
+                            fat: nutritionFacts.fatPer100g * servingMultiplier
+                        )
+                    } else {
+                        perServingNutrition = (0, 0, 0, 0)
+                    }
+                } else {
+                    // No gram weight (e.g., FatSecret with per-serving data only)
+                    // Use the per-serving nutrition directly
+                    if let nutriments = product.nutriments,
+                       let servingCal = nutriments.energyKcalServing?.value, servingCal > 0 {
+                        perServingNutrition = (
+                            calories: servingCal,
+                            protein: nutriments.proteinsServing?.value ?? 0,
+                            carbs: nutriments.carbohydratesServing?.value ?? 0,
+                            fat: nutriments.fatServing?.value ?? 0
+                        )
+                    } else {
+                        perServingNutrition = (0, 0, 0, 0)
+                    }
+                }
+
+                // Determine source
+                let source: String
+                if product.code.hasPrefix("usda_") {
+                    source = "USDA"
+                } else if product.code.hasPrefix("fatsecret_") {
+                    source = "FatSecret"
+                } else {
+                    source = "OpenFoodFacts"
+                }
+
+                // Create FoodItem with per-serving nutrition
+                let servingScale = baseServingGrams.map { $0 / 100.0 } ?? 1.0
+                foodItem = FoodItem(
+                    name: product.displayName,
+                    brand: product.brands,
+                    barcode: product.code,
+                    source: source,
+                    nutritionMode: .perServing,
+                    calories: perServingNutrition.calories,
+                    protein: perServingNutrition.protein,
+                    carbs: perServingNutrition.carbs,
+                    fat: perServingNutrition.fat,
+                    // per-100g fields scaled to serving; fall back to per-serving fields (e.g. FatSecret)
+                    fiber: product.nutriments?.fiber100g.map { $0.value * servingScale }
+                        ?? product.nutriments?.fiberServing.map { $0.value },
+                    sugar: product.nutriments?.sugars100g.map { $0.value * servingScale }
+                        ?? product.nutriments?.sugarsServing.map { $0.value },
+                    saturatedFat: product.nutriments?.saturatedFat100g.map { $0.value * servingScale }
+                        ?? product.nutriments?.saturatedFatServing.map { $0.value },
+                    sodium: product.nutriments?.sodium100g.map { $0.value * 1000.0 * servingScale }  // g → mg
+                        ?? product.nutriments?.sodiumServing.map { $0.value * 1000.0 },  // g → mg
+                    cholesterol: product.nutriments?.cholesterol100g.map { $0.value * 1000.0 * servingScale }  // g → mg
+                        ?? product.nutriments?.cholesterolServing.map { $0.value },
+                    potassium: product.nutriments?.potassium100g.map { $0.value * 1000.0 * servingScale }  // g → mg
+                        ?? product.nutriments?.potassiumServing.map { $0.value },
+                    calcium: product.nutriments?.calcium100g.map { $0.value * 1000.0 * servingScale }  // g → mg
+                        ?? product.nutriments?.calciumServing.map { $0.value },
+                    iron: product.nutriments?.iron100g.map { $0.value * 1000.0 * servingScale }  // g → mg
+                        ?? product.nutriments?.ironServing.map { $0.value },
+                    vitaminA: product.nutriments?.vitaminA100g.map { $0.value * 1_000_000.0 * servingScale }  // g → mcg
+                        ?? product.nutriments?.vitaminAServing.map { $0.value },
+                    vitaminC: product.nutriments?.vitaminC100g.map { $0.value * 1000.0 * servingScale }  // g → mg
+                        ?? product.nutriments?.vitaminCServing.map { $0.value }
+                )
+
+                modelContext.insert(foodItem)
+
+                // Create default serving
+                let defaultServing = ServingSize(
+                    label: baseServingDesc,
+                    gramWeight: baseServingGrams,
+                    isDefault: true,
+                    sortOrder: 0
+                )
+                defaultServing.foodItem = foodItem
+                modelContext.insert(defaultServing)
+                foodItem.servingSizes.append(defaultServing)
+
+                // If product has USDA portions, create ServingSize entries for each
+                if let productPortions = product.portions {
+                    for (index, portion) in productPortions.enumerated() {
+                        let servingSize = ServingSize(
+                            label: "\(portion.amount) \(portion.modifier)",
+                            gramWeight: portion.gramWeight,
+                            isDefault: false,
+                            sortOrder: index + 1
+                        )
+                        servingSize.foodItem = foodItem
+                        modelContext.insert(servingSize)
+                        foodItem.servingSizes.append(servingSize)
+                    }
+                }
             }
         }
-        
+
+        // Find or create the appropriate ServingSize for what the user selected
+        var selectedServingSize: ServingSize?
+
+        if let portion = selectedPortion {
+            // Find the ServingSize matching this portion
+            selectedServingSize = foodItem.servingSizes.first { servingSize in
+                servingSize.label == portion.displayName
+            }
+        } else {
+            // Find or create ServingSize for the selected unit
+            selectedServingSize = foodItem.servingSizes.first { servingSize in
+                servingSize.isDefault
+            }
+        }
+
+        // If we still don't have a serving size, use the default
+        if selectedServingSize == nil {
+            selectedServingSize = foodItem.defaultServing
+        }
+
+        guard let servingSize = selectedServingSize else {
+            print("❌ Failed to find or create ServingSize")
+            return
+        }
+
         let addedItem = AddedFoodItem(
             foodItem: foodItem,
-            servings: amountValue,
-            totalGrams: totalGrams,
-            selectedPortionId: selectedPortion?.id
+            servingSize: servingSize,
+            quantity: resolvedServingCount
         )
 
         onAdd(addedItem)

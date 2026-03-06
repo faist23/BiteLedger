@@ -244,53 +244,53 @@ struct HistoryView: View {
     private func totalValue(for nutrient: Nutrient, in logs: [FoodLog]) -> Double {
         switch nutrient {
         case .calories:
-            return logs.reduce(0) { $0 + $1.calories }
+            return logs.reduce(0) { $0 + $1.caloriesAtLogTime }
         case .protein:
-            return logs.reduce(0) { $0 + $1.protein }
+            return logs.reduce(0) { $0 + $1.proteinAtLogTime }
         case .carbs:
-            return logs.reduce(0) { $0 + $1.carbs }
+            return logs.reduce(0) { $0 + $1.carbsAtLogTime }
         case .fat:
-            return logs.reduce(0) { $0 + $1.fat }
+            return logs.reduce(0) { $0 + $1.fatAtLogTime }
         case .fiber:
-            return logs.reduce(0) { $0 + ($1.fiber ?? 0) }
+            return logs.reduce(0) { $0 + ($1.fiberAtLogTime ?? 0) }
         case .sugar:
-            return logs.reduce(0) { $0 + ($1.sugar ?? 0) }
+            return logs.reduce(0) { $0 + ($1.sugarAtLogTime ?? 0) }
         case .saturatedFat:
-            return logs.reduce(0) { $0 + ($1.saturatedFat ?? 0) }
+            return logs.reduce(0) { $0 + ($1.saturatedFatAtLogTime ?? 0) }
         case .sodium:
-            return logs.reduce(0) { $0 + ($1.sodium ?? 0) } * 1000 // Convert to mg
+            return logs.reduce(0) { $0 + ($1.sodiumAtLogTime ?? 0) }
         case .potassium:
-            return logs.reduce(0) { $0 + ($1.potassium ?? 0) } * 1000
+            return logs.reduce(0) { $0 + ($1.potassiumAtLogTime ?? 0) }
         case .calcium:
-            return logs.reduce(0) { $0 + ($1.calcium ?? 0) } * 1000
+            return logs.reduce(0) { $0 + ($1.calciumAtLogTime ?? 0) }
         case .iron:
-            return logs.reduce(0) { $0 + ($1.iron ?? 0) } * 1000
+            return logs.reduce(0) { $0 + ($1.ironAtLogTime ?? 0) }
         case .magnesium:
-            return logs.reduce(0) { $0 + ($1.magnesium ?? 0) } * 1000
+            return logs.reduce(0) { $0 + ($1.magnesiumAtLogTime ?? 0) }
         case .zinc:
-            return logs.reduce(0) { $0 + ($1.zinc ?? 0) } * 1000
+            return logs.reduce(0) { $0 + ($1.zincAtLogTime ?? 0) }
         case .vitaminC:
-            return logs.reduce(0) { $0 + ($1.vitaminC ?? 0) } * 1000
+            return logs.reduce(0) { $0 + ($1.vitaminCAtLogTime ?? 0) }
         case .vitaminD:
-            return logs.reduce(0) { $0 + ($1.vitaminD ?? 0) } * 1000
+            return logs.reduce(0) { $0 + ($1.vitaminDAtLogTime ?? 0) }
         case .vitaminE:
-            return logs.reduce(0) { $0 + ($1.vitaminE ?? 0) } * 1000
+            return logs.reduce(0) { $0 + ($1.vitaminEAtLogTime ?? 0) }
         case .vitaminB6:
-            return logs.reduce(0) { $0 + ($1.vitaminB6 ?? 0) } * 1000
+            return logs.reduce(0) { $0 + ($1.vitaminB6AtLogTime ?? 0) }
         case .choline:
-            return logs.reduce(0) { $0 + ($1.choline ?? 0) } * 1000
+            return logs.reduce(0) { $0 + ($1.cholineAtLogTime ?? 0) }
         case .caffeine:
-            return logs.reduce(0) { $0 + ($1.caffeine ?? 0) } * 1000
+            return logs.reduce(0) { $0 + ($1.caffeineAtLogTime ?? 0) }
         case .cholesterol:
-            return logs.reduce(0) { $0 + ($1.cholesterol ?? 0) } * 1000
+            return logs.reduce(0) { $0 + ($1.cholesterolAtLogTime ?? 0) }
         case .vitaminA:
-            return logs.reduce(0) { $0 + ($1.vitaminA ?? 0) } * 1_000_000 // Convert to mcg
+            return logs.reduce(0) { $0 + ($1.vitaminAAtLogTime ?? 0) }
         case .vitaminK:
-            return logs.reduce(0) { $0 + ($1.vitaminK ?? 0) } * 1_000_000
+            return logs.reduce(0) { $0 + ($1.vitaminKAtLogTime ?? 0) }
         case .vitaminB12:
-            return logs.reduce(0) { $0 + ($1.vitaminB12 ?? 0) } * 1_000_000
+            return logs.reduce(0) { $0 + ($1.vitaminB12AtLogTime ?? 0) }
         case .folate:
-            return logs.reduce(0) { $0 + ($1.folate ?? 0) } * 1_000_000
+            return logs.reduce(0) { $0 + ($1.folateAtLogTime ?? 0) }
         default:
             return 0
         }
@@ -405,13 +405,13 @@ struct HistoryView: View {
         let daysWithLogs = logsByDay.count
         guard daysWithLogs > 0 else { return 0 }
         
-        let totalCalories = recentLogs.reduce(0.0) { $0 + $1.calories }
+        let totalCalories = recentLogs.reduce(0.0) { $0 + $1.caloriesAtLogTime }
         return Int(totalCalories / Double(daysWithLogs))
     }
     
     private var filteredLogs: [FoodLog] {
         if let mealFilter = selectedMealFilter {
-            return allLogs.filter { $0.meal == mealFilter }
+            return allLogs.filter { $0.mealType == mealFilter }
         }
         return allLogs
     }

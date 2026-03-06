@@ -30,7 +30,16 @@ struct ProductDetailView: View {
     }
     
     private var nutritionMultiplier: Double {
-        servingSizeGrams / 100.0
+        // For items with per-serving nutrition (like FatSecret), servingSizeGrams might be 0
+        // In that case, use servingAmount directly as the multiplier
+        if servingSizeGrams > 0 {
+            return servingSizeGrams / 100.0
+        } else if selectedUnit == .serving {
+            // For serving-based items with no grams, use servingAmount as multiplier
+            return servingAmount
+        } else {
+            return 1.0
+        }
     }
     
     private var calculatedNutrition: NutritionFacts? {
@@ -231,27 +240,116 @@ struct ProductDetailView: View {
     }
     
     private func addFoodLog() {
-        guard let nutrition = calculatedNutrition else { return }
-        
-        let foodItem = FoodItem(
-            name: product.displayName,
-            brand: product.brands,
-            barcode: product.code,
-            nutritionPer100g: nutrition,
-            servingSize: servingSizeGrams,
-            servingSizeUnit: selectedUnit.abbreviation
+        guard let calculatedNutrition = calculatedNutrition else { return }
+
+        // Check if a FoodItem with this barcode already exists
+        let barcode = product.code
+        let descriptor = FetchDescriptor<FoodItem>(
+            predicate: #Predicate { $0.barcode == barcode }
         )
-        foodItem.lastUsed = Date()
-        
-        let foodLog = FoodLog(
-            foodItem: foodItem,
-            servings: servingAmount,
+
+        let foodItem: FoodItem
+        if let existingByBarcode = try? modelContext.fetch(descriptor).first {
+            print("✅ Found existing FoodItem by barcode: \(existingByBarcode.name)")
+            foodItem = existingByBarcode
+        } else {
+            // Create new FoodItem with serving-based nutrition
+
+            // Determine source
+            let source: String
+            if product.code.hasPrefix("usda_") {
+                source = "USDA"
+            } else if product.code.hasPrefix("fatsecret_") {
+                source = "FatSecret"
+            } else {
+                source = "OpenFoodFacts"
+            }
+
+            // Extract per-100g nutrition from OpenFoodFacts data
+            let nutritionFacts = product.nutriments?.toNutritionFacts(servingMultiplier: 1.0) ?? NutritionFacts(caloriesPer100g: 0, proteinPer100g: 0, carbsPer100g: 0, fatPer100g: 0)
+
+            // DEBUG: Print nutrition facts to verify values
+            print("🔍 Creating FoodItem: \(product.displayName)")
+            print("   Nutrition mode: per100g")
+            print("   Calories per 100g: \(nutritionFacts.caloriesPer100g)")
+            print("   Protein per 100g: \(nutritionFacts.proteinPer100g)")
+            print("   Carbs per 100g: \(nutritionFacts.carbsPer100g)")
+            print("   Fat per 100g: \(nutritionFacts.fatPer100g)")
+
+            // Create FoodItem with per-100g nutrition (OpenFoodFacts standard)
+            foodItem = FoodItem(
+                name: product.displayName,
+                brand: product.brands,
+                barcode: product.code,
+                source: source,
+                nutritionMode: .per100g,
+                calories: nutritionFacts.caloriesPer100g,
+                protein: nutritionFacts.proteinPer100g,
+                carbs: nutritionFacts.carbsPer100g,
+                fat: nutritionFacts.fatPer100g,
+                fiber: product.nutriments?.fiber100g?.value,
+                sugar: product.nutriments?.sugars100g?.value,
+                saturatedFat: product.nutriments?.saturatedFat100g?.value,
+                sodium: product.nutriments?.sodium100g.map { $0.value * 1000 }  // g → mg
+            )
+            
+            print("   ✅ FoodItem created with calories: \(foodItem.calories)")
+
+            modelContext.insert(foodItem)
+
+            // Create default serving size based on product info
+            let servingLabel: String
+            let servingGrams: Double?
+            
+            if let servingSize = product.servingSize {
+                servingLabel = servingSize
+                servingGrams = parseServingSize(servingSize)
+            } else {
+                servingLabel = "100g"
+                servingGrams = 100.0
+            }
+            
+            let defaultServing = ServingSize(
+                label: servingLabel,
+                gramWeight: servingGrams,
+                isDefault: true,
+                sortOrder: 0
+            )
+            defaultServing.foodItem = foodItem
+            modelContext.insert(defaultServing)
+            foodItem.servingSizes.append(defaultServing)
+        }
+
+        // Find the default serving size
+        guard let servingSize = foodItem.defaultServing else {
+            print("❌ Failed to find default ServingSize")
+            return
+        }
+
+        // Calculate the actual quantity to log
+        // For gram-based selection: if user entered "88" in the custom grams field, 
+        // and the default serving is "88g", quantity should be 1.0
+        // If default serving is "100g" and user entered "88g", quantity should be 0.88
+        let logQuantity: Double
+        if selectedUnit == .gram, let defaultGrams = servingSize.gramWeight, defaultGrams > 0 {
+            // User selected grams mode - quantity is ratio of entered grams to default serving grams
+            logQuantity = servingSizeGrams / defaultGrams
+        } else {
+            // For serving or container mode, use servingAmount directly
+            logQuantity = servingAmount
+        }
+
+        // Create food log using factory method (freezes nutrition at log time)
+        let foodLog = FoodLog.create(
             mealType: selectedMealType,
+            quantity: logQuantity,
+            food: foodItem,
+            serving: servingSize,
             timestamp: Date()
         )
-        
+
         modelContext.insert(foodLog)
-        
+
         do {
             try modelContext.save()
             showingSuccessAlert = true

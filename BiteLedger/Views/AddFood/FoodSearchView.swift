@@ -5,7 +5,9 @@ import SwiftData
 struct FoodSearchView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \FoodLog.timestamp, order: .reverse) private var allLogs: [FoodLog]
+    // Loaded asynchronously in .task so the sheet presents and keyboard appears immediately.
+    // @Query would block the main thread on init with 1000+ records.
+    @State private var allLogs: [FoodLog] = []
     
     let mealType: MealType
     let onFoodAdded: (AddedFoodItem) -> Void
@@ -17,7 +19,7 @@ struct FoodSearchView: View {
     @State private var showBarcodeScanner = false
     @State private var showManualEntry = false
     @State private var selectedProduct: ProductInfo?
-    @State private var selectedProductContext: (product: ProductInfo, existingFood: FoodItem?, initialAmount: Double?, initialPortionId: Int?)? // Combined context
+    @State private var selectedProductContext: (product: ProductInfo, existingFood: FoodItem?, initialAmount: Double?, initialPortionId: Int?, initialUnit: String?)? // Combined context
     @State private var selectedMeal: [FoodLog]?
     @State private var errorMessage: String?
     @State private var searchTask: Task<Void, Never>? // Track current search task
@@ -163,6 +165,14 @@ struct FoodSearchView: View {
                 Spacer(minLength: 0)
             }
             .background(Color("SurfacePrimary"))
+            .task {
+                // Load logs asynchronously so the sheet + keyboard appear without delay.
+                var d = FetchDescriptor<FoodLog>(
+                    sortBy: [SortDescriptor(\FoodLog.timestamp, order: .reverse)]
+                )
+                d.fetchLimit = 1000
+                allLogs = (try? modelContext.fetch(d)) ?? []
+            }
             .navigationTitle("Add Food")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -195,13 +205,14 @@ struct FoodSearchView: View {
                             product: $0.product,
                             existingFood: $0.existingFood,
                             initialServingAmount: $0.initialAmount,
-                            initialPortionId: $0.initialPortionId
+                            initialPortionId: $0.initialPortionId,
+                            initialUnit: $0.initialUnit
                         )
                     }
                 },
                 set: {
                     selectedProductContext = $0.map {
-                        ($0.product, $0.existingFood, $0.initialServingAmount, $0.initialPortionId)
+                        ($0.product, $0.existingFood, $0.initialServingAmount, $0.initialPortionId, $0.initialUnit)
                     }
                 }
             )) { context in
@@ -210,7 +221,8 @@ struct FoodSearchView: View {
                     mealType: mealType,
                     existingFoodItem: context.existingFood,
                     initialServingAmount: context.initialServingAmount,
-                    initialPortionId: context.initialPortionId
+                    initialPortionId: context.initialPortionId,
+                    initialUnit: context.initialUnit
                 ) { addedItem in
                     onFoodAdded(addedItem)
                     selectedProductContext = nil
@@ -250,50 +262,124 @@ struct FoodSearchView: View {
                     onFoodSelected: { foodItem in
                         // Find the most recent log entry for this food item
                         let mostRecentLog = allLogs.first { $0.foodItem?.id == foodItem.id }
-                        let lastServingAmount = mostRecentLog?.servingMultiplier ?? 1.0
+                        let lastServingAmount = mostRecentLog?.quantity ?? 1.0
                         
                         let servingSizeString: String
-                        if let recentLog = mostRecentLog {
-                            servingSizeString = "\(recentLog.servingMultiplier) \(foodItem.servingDescription) (\(Int(recentLog.totalGrams))g)"
+                        if let recentLog = mostRecentLog, 
+                           let servingSize = recentLog.servingSize,
+                           let gramWeight = servingSize.gramWeight {
+                            let totalGrams = recentLog.quantity * gramWeight
+                            servingSizeString = "\(recentLog.quantity) \(servingSize.label) (\(Int(totalGrams))g)"
+                        } else if let defaultServing = foodItem.defaultServing,
+                                  let gramWeight = defaultServing.gramWeight {
+                            servingSizeString = "\(defaultServing.label) (\(Int(gramWeight))g)"
+                        } else if let defaultServing = foodItem.defaultServing {
+                            // Prefix with "1 " if label has no leading number so ServingSizeParser
+                            // can extract an amount and default to .serving unit (avoids "1 gram" default)
+                            let label = defaultServing.label
+                            servingSizeString = label.first?.isNumber == true ? label : "1 \(label)"
                         } else {
-                            servingSizeString = "\(foodItem.servingDescription) (\(Int(foodItem.gramsPerServing))g)"
+                            servingSizeString = "1 serving"
+                        }
+
+                        // Convert FoodItem to per-100g for ProductInfo (which expects per-100g)
+                        let per100gCalories: Double
+                        let per100gProtein: Double
+                        let per100gCarbs: Double
+                        let per100gFat: Double
+                        let baseGrams: Double
+                        
+                        if foodItem.nutritionMode == .per100g {
+                            // Already per 100g
+                            per100gCalories = foodItem.calories
+                            per100gProtein = foodItem.protein
+                            per100gCarbs = foodItem.carbs
+                            per100gFat = foodItem.fat
+                            baseGrams = 100.0
+                        } else if let gw = foodItem.defaultServing?.gramWeight {
+                            baseGrams = gw
+                            per100gCalories = (foodItem.calories / baseGrams) * 100.0
+                            per100gProtein = (foodItem.protein / baseGrams) * 100.0
+                            per100gCarbs = (foodItem.carbs / baseGrams) * 100.0
+                            per100gFat = (foodItem.fat / baseGrams) * 100.0
+                        } else {
+                            // perServing, no gramWeight (tablets, slices, etc.)
+                            // baseGrams=1 → per100g = perServing × 100
+                            // picker's totalGrams/100 multiplier then recovers the per-serving value
+                            baseGrams = 1.0
+                            per100gCalories = foodItem.calories * 100.0
+                            per100gProtein = foodItem.protein * 100.0
+                            per100gCarbs = foodItem.carbs * 100.0
+                            per100gFat = foodItem.fat * 100.0
+                        }
+                        
+                        // Helper function to convert optional nutrient to per-100g
+                        func toPer100g(_ value: Double?) -> FlexibleDouble? {
+                            guard let value = value else { return nil }
+                            if foodItem.nutritionMode == .per100g {
+                                return FlexibleDouble(value)
+                            } else {
+                                return FlexibleDouble((value / baseGrams) * 100.0)
+                            }
+                        }
+                        
+                        // Helper for mg → g conversion
+                        func mgToPer100g(_ mg: Double?) -> FlexibleDouble? {
+                            guard let mg = mg else { return nil }
+                            let grams = mg / 1000.0
+                            if foodItem.nutritionMode == .per100g {
+                                return FlexibleDouble(grams)
+                            } else {
+                                return FlexibleDouble((grams / baseGrams) * 100.0)
+                            }
+                        }
+                        
+                        // Helper for mcg → g conversion
+                        func mcgToPer100g(_ mcg: Double?) -> FlexibleDouble? {
+                            guard let mcg = mcg else { return nil }
+                            let grams = mcg / 1_000_000.0
+                            if foodItem.nutritionMode == .per100g {
+                                return FlexibleDouble(grams)
+                            } else {
+                                return FlexibleDouble((grams / baseGrams) * 100.0)
+                            }
                         }
                         
                         let productInfo = ProductInfo(
                             code: foodItem.barcode ?? "",
                             productName: foodItem.name,
                             brands: foodItem.brand,
-                            imageUrl: foodItem.imageURL,
+                            imageUrl: nil,
                             nutriments: Nutriments(
-                                energyKcal100g: FlexibleDouble(foodItem.caloriesPer100g),
-                                energyKcalComputed: foodItem.caloriesPer100g,
-                                proteins100g: FlexibleDouble(foodItem.proteinPer100g),
-                                carbohydrates100g: FlexibleDouble(foodItem.carbsPer100g),
-                                sugars100g: foodItem.sugarPer100g.map { FlexibleDouble($0) },
-                                fat100g: FlexibleDouble(foodItem.fatPer100g),
-                                saturatedFat100g: foodItem.saturatedFatPer100g.map { FlexibleDouble($0) },
-                                transFat100g: foodItem.transFatPer100g.map { FlexibleDouble($0) },
-                                monounsaturatedFat100g: foodItem.monounsaturatedFatPer100g.map { FlexibleDouble($0) },
-                                polyunsaturatedFat100g: foodItem.polyunsaturatedFatPer100g.map { FlexibleDouble($0) },
-                                fiber100g: foodItem.fiberPer100g.map { FlexibleDouble($0) },
-                                sodium100g: foodItem.sodiumPer100g.map { FlexibleDouble($0) },
+                                energyKcal100g: FlexibleDouble(per100gCalories),
+                                energyKcalComputed: per100gCalories,
+                                proteins100g: FlexibleDouble(per100gProtein),
+                                carbohydrates100g: FlexibleDouble(per100gCarbs),
+                                sugars100g: toPer100g(foodItem.sugar),
+                                fat100g: FlexibleDouble(per100gFat),
+                                saturatedFat100g: toPer100g(foodItem.saturatedFat),
+                                transFat100g: toPer100g(foodItem.transFat),
+                                monounsaturatedFat100g: toPer100g(foodItem.monounsaturatedFat),
+                                polyunsaturatedFat100g: toPer100g(foodItem.polyunsaturatedFat),
+                                fiber100g: toPer100g(foodItem.fiber),
+                                sodium100g: mgToPer100g(foodItem.sodium),
                                 salt100g: nil,
-                                cholesterol100g: foodItem.cholesterolPer100g.map { FlexibleDouble($0) },
-                                vitaminA100g: foodItem.vitaminAPer100g.map { FlexibleDouble($0) },
-                                vitaminC100g: foodItem.vitaminCPer100g.map { FlexibleDouble($0) },
-                                vitaminD100g: foodItem.vitaminDPer100g.map { FlexibleDouble($0) },
-                                vitaminE100g: foodItem.vitaminEPer100g.map { FlexibleDouble($0) },
-                                vitaminK100g: foodItem.vitaminKPer100g.map { FlexibleDouble($0) },
-                                vitaminB6100g: foodItem.vitaminB6Per100g.map { FlexibleDouble($0) },
-                                vitaminB12100g: foodItem.vitaminB12Per100g.map { FlexibleDouble($0) },
-                                folate100g: foodItem.folatePer100g.map { FlexibleDouble($0) },
-                                choline100g: foodItem.cholinePer100g.map { FlexibleDouble($0) },
-                                calcium100g: foodItem.calciumPer100g.map { FlexibleDouble($0) },
-                                iron100g: foodItem.ironPer100g.map { FlexibleDouble($0) },
-                                potassium100g: foodItem.potassiumPer100g.map { FlexibleDouble($0) },
-                                magnesium100g: foodItem.magnesiumPer100g.map { FlexibleDouble($0) },
-                                zinc100g: foodItem.zincPer100g.map { FlexibleDouble($0) },
-                                caffeine100g: foodItem.caffeinePer100g.map { FlexibleDouble($0) },
+                                cholesterol100g: mgToPer100g(foodItem.cholesterol),
+                                vitaminA100g: mcgToPer100g(foodItem.vitaminA),
+                                vitaminC100g: mgToPer100g(foodItem.vitaminC),
+                                vitaminD100g: mcgToPer100g(foodItem.vitaminD),
+                                vitaminE100g: mgToPer100g(foodItem.vitaminE),
+                                vitaminK100g: mcgToPer100g(foodItem.vitaminK),
+                                vitaminB6100g: mgToPer100g(foodItem.vitaminB6),
+                                vitaminB12100g: mcgToPer100g(foodItem.vitaminB12),
+                                folate100g: mcgToPer100g(foodItem.folate),
+                                choline100g: mgToPer100g(foodItem.choline),
+                                calcium100g: mgToPer100g(foodItem.calcium),
+                                iron100g: mgToPer100g(foodItem.iron),
+                                potassium100g: mgToPer100g(foodItem.potassium),
+                                magnesium100g: mgToPer100g(foodItem.magnesium),
+                                zinc100g: mgToPer100g(foodItem.zinc),
+                                caffeine100g: mgToPer100g(foodItem.caffeine),
                                 energyKcalServing: nil,
                                 proteinsServing: nil,
                                 carbohydratesServing: nil,
@@ -304,12 +390,14 @@ struct FoodSearchView: View {
                                 sodiumServing: nil
                             ),
                             servingSize: servingSizeString,
-                            quantity: "\(Int(foodItem.gramsPerServing))g",
-                            portions: foodItem.portions?.map { ServingPortion(id: $0.id, amount: $0.amount, modifier: $0.modifier, gramWeight: $0.gramWeight) },
+                            quantity: foodItem.nutritionMode == .perServing && foodItem.defaultServing?.gramWeight == nil
+                                ? servingSizeString
+                                : "\(Int(baseGrams))g",
+                            portions: nil,
                             countriesTags: nil,
-                            lastUsed: mostRecentLog?.timestamp ?? foodItem.lastUsed
+                            lastUsed: mostRecentLog?.timestamp
                         )
-                        selectedProductContext = (productInfo, foodItem, lastServingAmount, mostRecentLog?.selectedPortionId)
+                        selectedProductContext = (productInfo, foodItem, lastServingAmount, nil, mostRecentLog?.servingSize?.label)
                     }
                 )
             } else {
@@ -337,91 +425,151 @@ struct FoodSearchView: View {
                 let mostRecentLog = allLogs.first { $0.foodItem?.id == foodItem.id }
                 
                 // Convert FoodItem to ProductInfo for the serving picker
-                // Use the most recent serving multiplier if available
-                let lastServingAmount = mostRecentLog?.servingMultiplier ?? 1.0
+                // Use the most recent quantity if available
+                let lastServingAmount = mostRecentLog?.quantity ?? 1.0
                 let servingSizeString: String
                 
-                if let recentLog = mostRecentLog {
-                    // Use the actual serving from the last time this was logged
-                    servingSizeString = "\(recentLog.servingMultiplier) \(foodItem.servingDescription) (\(Int(recentLog.totalGrams))g)"
+                if let recentLog = mostRecentLog, 
+                   let servingSize = recentLog.servingSize,
+                   let gramWeight = servingSize.gramWeight {
+                    let totalGrams = recentLog.quantity * gramWeight
+                    servingSizeString = "\(recentLog.quantity) \(servingSize.label) (\(Int(totalGrams))g)"
+                } else if let defaultServing = foodItem.defaultServing,
+                          let gramWeight = defaultServing.gramWeight {
+                    servingSizeString = "\(defaultServing.label) (\(Int(gramWeight))g)"
+                } else if let defaultServing = foodItem.defaultServing {
+                    // Prefix with "1 " if label has no leading number so ServingSizeParser
+                    // can extract an amount and default to .serving unit (avoids "1 gram" default)
+                    let label = defaultServing.label
+                    servingSizeString = label.first?.isNumber == true ? label : "1 \(label)"
                 } else {
-                    servingSizeString = "\(foodItem.servingDescription) (\(Int(foodItem.gramsPerServing))g)"
+                    servingSizeString = "1 serving"
+                }
+
+                // Convert FoodItem to per-100g for ProductInfo (which expects per-100g)
+                let per100gCalories: Double
+                let per100gProtein: Double
+                let per100gCarbs: Double
+                let per100gFat: Double
+                let baseGrams: Double
+                
+                if foodItem.nutritionMode == .per100g {
+                    per100gCalories = foodItem.calories
+                    per100gProtein = foodItem.protein
+                    per100gCarbs = foodItem.carbs
+                    per100gFat = foodItem.fat
+                    baseGrams = 100.0
+                } else if let gw = foodItem.defaultServing?.gramWeight {
+                    baseGrams = gw
+                    per100gCalories = (foodItem.calories / baseGrams) * 100.0
+                    per100gProtein = (foodItem.protein / baseGrams) * 100.0
+                    per100gCarbs = (foodItem.carbs / baseGrams) * 100.0
+                    per100gFat = (foodItem.fat / baseGrams) * 100.0
+                } else {
+                    // perServing, no gramWeight (tablets, slices, etc.)
+                    // baseGrams=1 → per100g = perServing × 100
+                    // picker's totalGrams/100 multiplier then recovers the per-serving value
+                    baseGrams = 1.0
+                    per100gCalories = foodItem.calories * 100.0
+                    per100gProtein = foodItem.protein * 100.0
+                    per100gCarbs = foodItem.carbs * 100.0
+                    per100gFat = foodItem.fat * 100.0
+                }
+
+                func toPer100g(_ value: Double?) -> FlexibleDouble? {
+                    guard let value = value else { return nil }
+                    return foodItem.nutritionMode == .per100g ? FlexibleDouble(value) : FlexibleDouble((value / baseGrams) * 100.0)
+                }
+                
+                func mgToPer100g(_ mg: Double?) -> FlexibleDouble? {
+                    guard let mg = mg else { return nil }
+                    let grams = mg / 1000.0
+                    return foodItem.nutritionMode == .per100g ? FlexibleDouble(grams) : FlexibleDouble((grams / baseGrams) * 100.0)
+                }
+                
+                func mcgToPer100g(_ mcg: Double?) -> FlexibleDouble? {
+                    guard let mcg = mcg else { return nil }
+                    let grams = mcg / 1_000_000.0
+                    return foodItem.nutritionMode == .per100g ? FlexibleDouble(grams) : FlexibleDouble((grams / baseGrams) * 100.0)
                 }
                 
                 let productInfo = ProductInfo(
                     code: foodItem.barcode ?? "",
                     productName: foodItem.name,
                     brands: foodItem.brand,
-                    imageUrl: foodItem.imageURL,
+                    imageUrl: nil,
                     nutriments: Nutriments(
-                        energyKcal100g: FlexibleDouble(foodItem.caloriesPer100g),
-                        energyKcalComputed: foodItem.caloriesPer100g,
-                        proteins100g: FlexibleDouble(foodItem.proteinPer100g),
-                        carbohydrates100g: FlexibleDouble(foodItem.carbsPer100g),
-                        sugars100g: foodItem.sugarPer100g.map { FlexibleDouble($0) },
-                        fat100g: FlexibleDouble(foodItem.fatPer100g),
-                        saturatedFat100g: foodItem.saturatedFatPer100g.map { FlexibleDouble($0) },
-                        transFat100g: foodItem.transFatPer100g.map { FlexibleDouble($0) },
-                        monounsaturatedFat100g: foodItem.monounsaturatedFatPer100g.map { FlexibleDouble($0) },
-                        polyunsaturatedFat100g: foodItem.polyunsaturatedFatPer100g.map { FlexibleDouble($0) },
-                        fiber100g: foodItem.fiberPer100g.map { FlexibleDouble($0) },
-                        sodium100g: foodItem.sodiumPer100g.map { FlexibleDouble($0) },
+                        energyKcal100g: FlexibleDouble(per100gCalories),
+                        energyKcalComputed: per100gCalories,
+                        proteins100g: FlexibleDouble(per100gProtein),
+                        carbohydrates100g: FlexibleDouble(per100gCarbs),
+                        sugars100g: toPer100g(foodItem.sugar),
+                        fat100g: FlexibleDouble(per100gFat),
+                        saturatedFat100g: toPer100g(foodItem.saturatedFat),
+                        transFat100g: toPer100g(foodItem.transFat),
+                        monounsaturatedFat100g: toPer100g(foodItem.monounsaturatedFat),
+                        polyunsaturatedFat100g: toPer100g(foodItem.polyunsaturatedFat),
+                        fiber100g: toPer100g(foodItem.fiber),
+                        sodium100g: mgToPer100g(foodItem.sodium),
                         salt100g: nil,
-                        cholesterol100g: foodItem.cholesterolPer100g.map { FlexibleDouble($0) },
-                        vitaminA100g: foodItem.vitaminAPer100g.map { FlexibleDouble($0) },
-                        vitaminC100g: foodItem.vitaminCPer100g.map { FlexibleDouble($0) },
-                        vitaminD100g: foodItem.vitaminDPer100g.map { FlexibleDouble($0) },
-                        vitaminE100g: foodItem.vitaminEPer100g.map { FlexibleDouble($0) },
-                        vitaminK100g: foodItem.vitaminKPer100g.map { FlexibleDouble($0) },
-                        vitaminB6100g: foodItem.vitaminB6Per100g.map { FlexibleDouble($0) },
-                        vitaminB12100g: foodItem.vitaminB12Per100g.map { FlexibleDouble($0) },
-                        folate100g: foodItem.folatePer100g.map { FlexibleDouble($0) },
-                        choline100g: foodItem.cholinePer100g.map { FlexibleDouble($0) },
-                        calcium100g: foodItem.calciumPer100g.map { FlexibleDouble($0) },
-                        iron100g: foodItem.ironPer100g.map { FlexibleDouble($0) },
-                        potassium100g: foodItem.potassiumPer100g.map { FlexibleDouble($0) },
-                        magnesium100g: foodItem.magnesiumPer100g.map { FlexibleDouble($0) },
-                        zinc100g: foodItem.zincPer100g.map { FlexibleDouble($0) },
-                        caffeine100g: foodItem.caffeinePer100g.map { FlexibleDouble($0) },
-                        energyKcalServing: nil,
-                        proteinsServing: nil,
-                        carbohydratesServing: nil,
-                        sugarsServing: nil,
-                        fatServing: nil,
-                        saturatedFatServing: nil,
-                        fiberServing: nil,
-                        sodiumServing: nil
+                        cholesterol100g: mgToPer100g(foodItem.cholesterol),
+                        vitaminA100g: mcgToPer100g(foodItem.vitaminA),
+                        vitaminC100g: mgToPer100g(foodItem.vitaminC),
+                        vitaminD100g: mcgToPer100g(foodItem.vitaminD),
+                        vitaminE100g: mgToPer100g(foodItem.vitaminE),
+                        vitaminK100g: mcgToPer100g(foodItem.vitaminK),
+                        vitaminB6100g: mgToPer100g(foodItem.vitaminB6),
+                        vitaminB12100g: mcgToPer100g(foodItem.vitaminB12),
+                        folate100g: mcgToPer100g(foodItem.folate),
+                        choline100g: mgToPer100g(foodItem.choline),
+                        calcium100g: mgToPer100g(foodItem.calcium),
+                        iron100g: mgToPer100g(foodItem.iron),
+                        potassium100g: mgToPer100g(foodItem.potassium),
+                        magnesium100g: mgToPer100g(foodItem.magnesium),
+                        zinc100g: mgToPer100g(foodItem.zinc),
+                        caffeine100g: mgToPer100g(foodItem.caffeine),
+                        energyKcalServing: FlexibleDouble(foodItem.calories),
+                        proteinsServing: FlexibleDouble(foodItem.protein),
+                        carbohydratesServing: FlexibleDouble(foodItem.carbs),
+                        sugarsServing: foodItem.sugar.map { FlexibleDouble($0) },
+                        fatServing: FlexibleDouble(foodItem.fat),
+                        saturatedFatServing: foodItem.saturatedFat.map { FlexibleDouble($0) },
+                        fiberServing: foodItem.fiber.map { FlexibleDouble($0) },
+                        sodiumServing: foodItem.sodium.map { FlexibleDouble($0) }
                     ),
                     servingSize: servingSizeString,
-                    quantity: "\(Int(foodItem.gramsPerServing))g",
-                    portions: foodItem.portions?.map { ServingPortion(id: $0.id, amount: $0.amount, modifier: $0.modifier, gramWeight: $0.gramWeight) },
+                    quantity: foodItem.nutritionMode == .perServing && foodItem.defaultServing?.gramWeight == nil
+                        ? servingSizeString
+                        : "\(Int(baseGrams))g",
+                    portions: nil,
                     countriesTags: nil,
-                    lastUsed: mostRecentLog?.timestamp ?? foodItem.lastUsed
+                    lastUsed: mostRecentLog?.timestamp
                 )
-                selectedProductContext = (productInfo, foodItem, lastServingAmount, mostRecentLog?.selectedPortionId)
+                selectedProductContext = (productInfo, foodItem, lastServingAmount, nil, mostRecentLog?.servingSize?.label)
             }
         )
     }
     
     private var groupedMeals: [(date: Date, mealType: MealType, logs: [FoodLog])] {
+        let calendar = Calendar.current
         let grouped = Dictionary(grouping: allLogs) { log -> String in
-            let calendar = Calendar.current
             let dateComponents = calendar.dateComponents([.year, .month, .day], from: log.timestamp)
             let dateKey = calendar.date(from: dateComponents) ?? log.timestamp
-            return "\(dateKey)-\(log.meal.rawValue)"
+            return "\(dateKey)-\(log.mealType.rawValue)"
         }
-        
-        return grouped.map { (_, logs) -> (date: Date, mealType: MealType, logs: [FoodLog]) in
+
+        let sorted = grouped.map { (_, logs) -> (date: Date, mealType: MealType, logs: [FoodLog]) in
             let firstLog = logs.first!
-            return (firstLog.timestamp, firstLog.meal, logs.sorted { $0.timestamp < $1.timestamp })
+            return (firstLog.timestamp, firstLog.mealType, logs.sorted { $0.timestamp < $1.timestamp })
         }
         .sorted { $0.date > $1.date }
-        .filter { meal in
-            if searchText.isEmpty { return true }
-            return meal.logs.contains { log in
-                log.foodItem?.name.localizedCaseInsensitiveContains(searchText) ?? false
-            }
+
+        let filtered = searchText.isEmpty ? sorted : sorted.filter { meal in
+            meal.logs.contains { $0.foodItem?.name.localizedCaseInsensitiveContains(searchText) ?? false }
         }
+
+        // Cap at 60 meal groups to keep the list fast to render
+        return Array(filtered.prefix(60))
     }
     
     private var mealsTabContent: some View {
@@ -457,7 +605,7 @@ struct FoodSearchView: View {
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                         
-                                        Text("\(Int(meal.logs.reduce(0) { $0 + $1.calories })) cal")
+                                        Text("\(Int(meal.logs.reduce(0) { $0 + $1.caloriesAtLogTime })) cal")
                                             .font(.caption)
                                             .fontWeight(.medium)
                                             .foregroundStyle(.blue)
@@ -476,7 +624,7 @@ struct FoodSearchView: View {
                                                 
                                                 Spacer()
                                                 
-                                                Text("\(Int(log.calories)) cal")
+                                                Text("\(Int(log.caloriesAtLogTime)) cal")
                                                     .font(.caption2)
                                                     .foregroundStyle(.tertiary)
                                             }
@@ -511,16 +659,12 @@ struct FoodSearchView: View {
                 onAdd: { selectedLogs in
                     // Batch add selected logs - preserve exact gram amounts
                     for log in selectedLogs {
-                        if let foodItem = log.foodItem {
-                            // Calculate servings from totalGrams to ensure display consistency
-                            // totalGrams is the source of truth (used for calories)
-                            let servings = foodItem.gramsPerServing > 0 ? log.totalGrams / foodItem.gramsPerServing : 1.0
-                            
+                        if let foodItem = log.foodItem,
+                           let servingSize = log.servingSize {
                             let addedItem = AddedFoodItem(
                                 foodItem: foodItem,
-                                servings: servings,
-                                totalGrams: log.totalGrams,
-                                selectedPortionId: log.selectedPortionId
+                                servingSize: servingSize,
+                                quantity: log.quantity
                             )
                             onFoodAdded(addedItem)
                         }
@@ -623,29 +767,35 @@ struct FoodSearchView: View {
     private func quickAddWater() {
         // Create a standard water FoodItem (1 cup = 8 fl oz / 237ml)
         let waterItem = FoodItem(
-            barcode: nil,
             name: "Water",
             brand: nil,
-            caloriesPer100g: 0,
-            proteinPer100g: 0,
-            carbsPer100g: 0,
-            fatPer100g: 0,
-            servingDescription: "cup",
-            gramsPerServing: 237, // 1 cup = 8 fl oz = ~237g
-            servingSizeIsEstimated: false,
+            barcode: nil,
             source: "Quick Add",
-            imageURL: nil
+            nutritionMode: .perServing,
+            calories: 0,
+            protein: 0,
+            carbs: 0,
+            fat: 0
         )
         
         // Add to model context so it's saved
         modelContext.insert(waterItem)
         
+        // Create default serving size (1 cup = 237g)
+        let cupServing = ServingSize(
+            label: "1 cup",
+            gramWeight: 237.0,
+            isDefault: true,
+            sortOrder: 0
+        )
+        cupServing.foodItem = waterItem
+        modelContext.insert(cupServing)
+        
         // Add 1 cup (8 fl oz / 237g)
         let addedItem = AddedFoodItem(
             foodItem: waterItem,
-            servings: 1.0,
-            totalGrams: 237,
-            selectedPortionId: nil
+            servingSize: cupServing,
+            quantity: 1.0
         )
         
         onFoodAdded(addedItem)
@@ -672,59 +822,95 @@ struct FoodSearchView: View {
             }
         }
 
-        // Convert to ProductInfo with lastUsed date
+        // Convert to ProductInfo
         return matchingFoods.map { foodItem in
             // Find the most recent log for this food item
             let mostRecentLog = allLogs.first { $0.foodItem?.id == foodItem.id }
-            let lastUsedDate = mostRecentLog?.timestamp ?? foodItem.lastUsed
+            let lastUsedDate = mostRecentLog?.timestamp
+            
+            // Use the actual logged values from most recent log for display accuracy
+            let actualCalories = mostRecentLog?.caloriesAtLogTime ?? foodItem.calories
+            let actualProtein = mostRecentLog?.proteinAtLogTime ?? foodItem.protein
+            let actualCarbs = mostRecentLog?.carbsAtLogTime ?? foodItem.carbs
+            let actualFat = mostRecentLog?.fatAtLogTime ?? foodItem.fat
+            
+            // Calculate actual grams from the log
+            let actualGrams: Double
+            if let log = mostRecentLog, let servingSize = log.servingSize, let gramWeight = servingSize.gramWeight {
+                actualGrams = log.quantity * gramWeight
+            } else if let defaultServing = foodItem.defaultServing, let gramWeight = defaultServing.gramWeight {
+                actualGrams = gramWeight
+            } else {
+                actualGrams = 100.0
+            }
+            
+            // Convert to per-100g for ProductInfo display
+            let baseGrams = actualGrams
+            let per100gCalories = (actualCalories / baseGrams) * 100.0
+            let per100gProtein = (actualProtein / baseGrams) * 100.0
+            let per100gCarbs = (actualCarbs / baseGrams) * 100.0
+            let per100gFat = (actualFat / baseGrams) * 100.0
             
             return ProductInfo(
                 code: foodItem.barcode ?? "myfoods_\(foodItem.id.uuidString)",
                 productName: foodItem.name,
                 brands: foodItem.brand,
-                imageUrl: foodItem.imageURL,
+                imageUrl: nil,
                 nutriments: Nutriments(
-                    energyKcal100g: FlexibleDouble(foodItem.caloriesPer100g),
-                    energyKcalComputed: foodItem.caloriesPer100g,
-                    proteins100g: FlexibleDouble(foodItem.proteinPer100g),
-                    carbohydrates100g: FlexibleDouble(foodItem.carbsPer100g),
-                    sugars100g: foodItem.sugarPer100g.map { FlexibleDouble($0) },
-                    fat100g: FlexibleDouble(foodItem.fatPer100g),
-                    saturatedFat100g: foodItem.saturatedFatPer100g.map { FlexibleDouble($0) },
-                    transFat100g: foodItem.transFatPer100g.map { FlexibleDouble($0) },
-                    monounsaturatedFat100g: foodItem.monounsaturatedFatPer100g.map { FlexibleDouble($0) },
-                    polyunsaturatedFat100g: foodItem.polyunsaturatedFatPer100g.map { FlexibleDouble($0) },
-                    fiber100g: foodItem.fiberPer100g.map { FlexibleDouble($0) },
-                    sodium100g: foodItem.sodiumPer100g.map { FlexibleDouble($0) },
+                    energyKcal100g: FlexibleDouble(per100gCalories),
+                    energyKcalComputed: per100gCalories,
+                    proteins100g: FlexibleDouble(per100gProtein),
+                    carbohydrates100g: FlexibleDouble(per100gCarbs),
+                    sugars100g: foodItem.sugar.map { FlexibleDouble(($0 / actualGrams) * 100.0) },
+                    fat100g: FlexibleDouble(per100gFat),
+                    saturatedFat100g: foodItem.saturatedFat.map { FlexibleDouble(($0 / actualGrams) * 100.0) },
+                    transFat100g: foodItem.transFat.map { FlexibleDouble(($0 / actualGrams) * 100.0) },
+                    monounsaturatedFat100g: foodItem.monounsaturatedFat.map { FlexibleDouble(($0 / actualGrams) * 100.0) },
+                    polyunsaturatedFat100g: foodItem.polyunsaturatedFat.map { FlexibleDouble(($0 / actualGrams) * 100.0) },
+                    fiber100g: foodItem.fiber.map { FlexibleDouble(($0 / actualGrams) * 100.0) },
+                    sodium100g: foodItem.sodium.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
                     salt100g: nil,
-                    cholesterol100g: foodItem.cholesterolPer100g.map { FlexibleDouble($0) },
-                    vitaminA100g: foodItem.vitaminAPer100g.map { FlexibleDouble($0) },
-                    vitaminC100g: foodItem.vitaminCPer100g.map { FlexibleDouble($0) },
-                    vitaminD100g: foodItem.vitaminDPer100g.map { FlexibleDouble($0) },
-                    vitaminE100g: foodItem.vitaminEPer100g.map { FlexibleDouble($0) },
-                    vitaminK100g: foodItem.vitaminKPer100g.map { FlexibleDouble($0) },
-                    vitaminB6100g: foodItem.vitaminB6Per100g.map { FlexibleDouble($0) },
-                    vitaminB12100g: foodItem.vitaminB12Per100g.map { FlexibleDouble($0) },
-                    folate100g: foodItem.folatePer100g.map { FlexibleDouble($0) },
-                    choline100g: foodItem.cholinePer100g.map { FlexibleDouble($0) },
-                    calcium100g: foodItem.calciumPer100g.map { FlexibleDouble($0) },
-                    iron100g: foodItem.ironPer100g.map { FlexibleDouble($0) },
-                    potassium100g: foodItem.potassiumPer100g.map { FlexibleDouble($0) },
-                    magnesium100g: foodItem.magnesiumPer100g.map { FlexibleDouble($0) },
-                    zinc100g: foodItem.zincPer100g.map { FlexibleDouble($0) },
-                    caffeine100g: foodItem.caffeinePer100g.map { FlexibleDouble($0) },
-                    energyKcalServing: nil,
-                    proteinsServing: nil,
-                    carbohydratesServing: nil,
-                    sugarsServing: nil,
-                    fatServing: nil,
-                    saturatedFatServing: nil,
-                    fiberServing: nil,
-                    sodiumServing: nil
+                    cholesterol100g: foodItem.cholesterol.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
+                    vitaminA100g: foodItem.vitaminA.map { FlexibleDouble((($0 / 1_000_000.0) / actualGrams) * 100.0) },  // mcg → g
+                    vitaminC100g: foodItem.vitaminC.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
+                    vitaminD100g: foodItem.vitaminD.map { FlexibleDouble((($0 / 1_000_000.0) / actualGrams) * 100.0) },  // mcg → g
+                    vitaminE100g: foodItem.vitaminE.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
+                    vitaminK100g: foodItem.vitaminK.map { FlexibleDouble((($0 / 1_000_000.0) / actualGrams) * 100.0) },  // mcg → g
+                    vitaminB6100g: foodItem.vitaminB6.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
+                    vitaminB12100g: foodItem.vitaminB12.map { FlexibleDouble((($0 / 1_000_000.0) / actualGrams) * 100.0) },  // mcg → g
+                    folate100g: foodItem.folate.map { FlexibleDouble((($0 / 1_000_000.0) / actualGrams) * 100.0) },  // mcg → g
+                    choline100g: foodItem.choline.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
+                    calcium100g: foodItem.calcium.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
+                    iron100g: foodItem.iron.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
+                    potassium100g: foodItem.potassium.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
+                    magnesium100g: foodItem.magnesium.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
+                    zinc100g: foodItem.zinc.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
+                    caffeine100g: foodItem.caffeine.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
+                    energyKcalServing: FlexibleDouble(actualCalories),
+                    proteinsServing: FlexibleDouble(actualProtein),
+                    carbohydratesServing: FlexibleDouble(actualCarbs),
+                    sugarsServing: foodItem.sugar.map { FlexibleDouble($0) },
+                    fatServing: FlexibleDouble(actualFat),
+                    saturatedFatServing: foodItem.saturatedFat.map { FlexibleDouble($0) },
+                    fiberServing: foodItem.fiber.map { FlexibleDouble($0) },
+                    sodiumServing: foodItem.sodium.map { FlexibleDouble($0) }
                 ),
-                servingSize: "\(foodItem.gramsPerServing)g",
-                quantity: "\(Int(foodItem.gramsPerServing))g",
-                portions: foodItem.portions?.map { ServingPortion(id: $0.id, amount: $0.amount, modifier: $0.modifier, gramWeight: $0.gramWeight) },
+                servingSize: {
+                    // Use the actual logged grams for display
+                    if let defaultServing = foodItem.defaultServing {
+                        if actualGrams > 0 && actualGrams != 100.0 {
+                            return "\(defaultServing.label) (\(Int(actualGrams))g)"
+                        } else {
+                            return defaultServing.label
+                        }
+                    } else if actualGrams > 0 {
+                        return "\(Int(actualGrams))g"
+                    } else {
+                        return "1 serving"
+                    }
+                }(),
+                quantity: nil,
+                portions: nil,
                 countriesTags: nil,
                 lastUsed: lastUsedDate
             )
@@ -754,6 +940,29 @@ struct FoodSearchView: View {
     }
     
     private func handleProductSelection(_ product: ProductInfo) {
+        print("🔍 handleProductSelection called for: \(product.displayName)")
+        print("🔍 Product code: \(product.code)")
+        
+        // Check if this is from My Foods (code starts with "myfoods_")
+        if product.code.hasPrefix("myfoods_") {
+            // Extract the UUID from the code
+            let uuidString = String(product.code.dropFirst("myfoods_".count))
+            if let uuid = UUID(uuidString: uuidString),
+               let foodItem = allLogs.compactMap({ $0.foodItem }).first(where: { $0.id == uuid }),
+               let mostRecentLog = allLogs.first(where: { $0.foodItem?.id == uuid }),
+               let servingSize = mostRecentLog.servingSize {
+                print("✅ My Foods item - directly adding with last logged serving")
+                let addedItem = AddedFoodItem(
+                    foodItem: foodItem,
+                    servingSize: servingSize,
+                    quantity: mostRecentLog.quantity
+                )
+                onFoodAdded(addedItem)
+                dismiss()
+                return
+            }
+        }
+        
         // Check if we already have this food item saved (to preserve any edits)
         let existingFood = allLogs.compactMap { $0.foodItem }
             .first { $0.barcode == product.code }
@@ -764,62 +973,154 @@ struct FoodSearchView: View {
             
             // Find the most recent log entry for this food item to get the last used serving and portion
             let mostRecentLog = allLogs.first { $0.foodItem?.id == existingFood.id }
-            let lastServingAmount = mostRecentLog?.servingMultiplier ?? 1.0
-            let lastPortionId = mostRecentLog?.selectedPortionId
+            
+            print("🔍 Most recent log found: \(mostRecentLog != nil)")
+            print("🔍 ServingSize: \(mostRecentLog?.servingSize?.label ?? "nil")")
+            if let log = mostRecentLog, let servingSize = log.servingSize, let gramWeight = servingSize.gramWeight {
+                print("🔍 TotalGrams: \(log.quantity * gramWeight)")
+            }
+            print("🔍 Quantity: \(mostRecentLog?.quantity ?? 0)")
+            
+            // DIRECTLY ADD using the last logged data - same as meal copy feature!
+            if let recentLog = mostRecentLog,
+               let servingSize = recentLog.servingSize {
+                print("✅ Directly adding with last used serving: \(recentLog.quantityDescription)")
+                let addedItem = AddedFoodItem(
+                    foodItem: existingFood,
+                    servingSize: servingSize,
+                    quantity: recentLog.quantity
+                )
+                onFoodAdded(addedItem)
+                dismiss()
+                return
+            }
+            
+            print("⚠️ No servingSize in most recent log - falling back to picker")
+            
+            // Fallback if no recent log - use the product selection flow
+            let lastServingAmount = mostRecentLog?.quantity ?? 1.0
+            
+            // Calculate actual logged grams from most recent log
+            let actualLoggedGrams: Double
+            if let log = mostRecentLog, let servingSize = log.servingSize, let gramWeight = servingSize.gramWeight {
+                actualLoggedGrams = log.quantity * gramWeight
+            } else if let defaultServing = existingFood.defaultServing, let gramWeight = defaultServing.gramWeight {
+                actualLoggedGrams = gramWeight
+            } else {
+                actualLoggedGrams = 100.0
+            }
             
             // Convert existing FoodItem to ProductInfo to pass to serving picker
+            let per100gCalories: Double
+            let per100gProtein: Double
+            let per100gCarbs: Double
+            let per100gFat: Double
+            let baseGrams: Double
+            
+            if existingFood.nutritionMode == .per100g {
+                per100gCalories = existingFood.calories
+                per100gProtein = existingFood.protein
+                per100gCarbs = existingFood.carbs
+                per100gFat = existingFood.fat
+                baseGrams = 100.0
+            } else if let gw = existingFood.defaultServing?.gramWeight {
+                baseGrams = gw
+                per100gCalories = (existingFood.calories / baseGrams) * 100.0
+                per100gProtein = (existingFood.protein / baseGrams) * 100.0
+                per100gCarbs = (existingFood.carbs / baseGrams) * 100.0
+                per100gFat = (existingFood.fat / baseGrams) * 100.0
+            } else {
+                // perServing, no gramWeight (tablets, slices, etc.)
+                baseGrams = 1.0
+                per100gCalories = existingFood.calories * 100.0
+                per100gProtein = existingFood.protein * 100.0
+                per100gCarbs = existingFood.carbs * 100.0
+                per100gFat = existingFood.fat * 100.0
+            }
+            
+            func toPer100g(_ value: Double?) -> FlexibleDouble? {
+                guard let value = value else { return nil }
+                return existingFood.nutritionMode == .per100g ? FlexibleDouble(value) : FlexibleDouble((value / baseGrams) * 100.0)
+            }
+            
+            func mgToPer100g(_ mg: Double?) -> FlexibleDouble? {
+                guard let mg = mg else { return nil }
+                let grams = mg / 1000.0
+                return existingFood.nutritionMode == .per100g ? FlexibleDouble(grams) : FlexibleDouble((grams / baseGrams) * 100.0)
+            }
+            
+            func mcgToPer100g(_ mcg: Double?) -> FlexibleDouble? {
+                guard let mcg = mcg else { return nil }
+                let grams = mcg / 1_000_000.0
+                return existingFood.nutritionMode == .per100g ? FlexibleDouble(grams) : FlexibleDouble((grams / baseGrams) * 100.0)
+            }
+            
             let productInfo = ProductInfo(
                 code: existingFood.barcode ?? product.code,
                 productName: existingFood.name,
                 brands: existingFood.brand,
-                imageUrl: existingFood.imageURL,
+                imageUrl: nil,
                 nutriments: Nutriments(
-                    energyKcal100g: FlexibleDouble(existingFood.caloriesPer100g),
-                    energyKcalComputed: existingFood.caloriesPer100g,
-                    proteins100g: FlexibleDouble(existingFood.proteinPer100g),
-                    carbohydrates100g: FlexibleDouble(existingFood.carbsPer100g),
-                    sugars100g: existingFood.sugarPer100g.map { FlexibleDouble($0) },
-                    fat100g: FlexibleDouble(existingFood.fatPer100g),
-                    saturatedFat100g: existingFood.saturatedFatPer100g.map { FlexibleDouble($0) },
-                    transFat100g: existingFood.transFatPer100g.map { FlexibleDouble($0) },
-                    monounsaturatedFat100g: existingFood.monounsaturatedFatPer100g.map { FlexibleDouble($0) },
-                    polyunsaturatedFat100g: existingFood.polyunsaturatedFatPer100g.map { FlexibleDouble($0) },
-                    fiber100g: existingFood.fiberPer100g.map { FlexibleDouble($0) },
-                    sodium100g: existingFood.sodiumPer100g.map { FlexibleDouble($0) },
+                    energyKcal100g: FlexibleDouble(per100gCalories),
+                    energyKcalComputed: per100gCalories,
+                    proteins100g: FlexibleDouble(per100gProtein),
+                    carbohydrates100g: FlexibleDouble(per100gCarbs),
+                    sugars100g: toPer100g(existingFood.sugar),
+                    fat100g: FlexibleDouble(per100gFat),
+                    saturatedFat100g: toPer100g(existingFood.saturatedFat),
+                    transFat100g: toPer100g(existingFood.transFat),
+                    monounsaturatedFat100g: toPer100g(existingFood.monounsaturatedFat),
+                    polyunsaturatedFat100g: toPer100g(existingFood.polyunsaturatedFat),
+                    fiber100g: toPer100g(existingFood.fiber),
+                    sodium100g: mgToPer100g(existingFood.sodium),
                     salt100g: nil,
-                    cholesterol100g: existingFood.cholesterolPer100g.map { FlexibleDouble($0) },
-                    vitaminA100g: existingFood.vitaminAPer100g.map { FlexibleDouble($0) },
-                    vitaminC100g: existingFood.vitaminCPer100g.map { FlexibleDouble($0) },
-                    vitaminD100g: existingFood.vitaminDPer100g.map { FlexibleDouble($0) },
-                    vitaminE100g: existingFood.vitaminEPer100g.map { FlexibleDouble($0) },
-                    vitaminK100g: existingFood.vitaminKPer100g.map { FlexibleDouble($0) },
-                    vitaminB6100g: existingFood.vitaminB6Per100g.map { FlexibleDouble($0) },
-                    vitaminB12100g: existingFood.vitaminB12Per100g.map { FlexibleDouble($0) },
-                    folate100g: existingFood.folatePer100g.map { FlexibleDouble($0) },
-                    choline100g: existingFood.cholinePer100g.map { FlexibleDouble($0) },
-                    calcium100g: existingFood.calciumPer100g.map { FlexibleDouble($0) },
-                    iron100g: existingFood.ironPer100g.map { FlexibleDouble($0) },
-                    potassium100g: existingFood.potassiumPer100g.map { FlexibleDouble($0) },
-                    magnesium100g: existingFood.magnesiumPer100g.map { FlexibleDouble($0) },
-                    zinc100g: existingFood.zincPer100g.map { FlexibleDouble($0) },
-                    caffeine100g: existingFood.caffeinePer100g.map { FlexibleDouble($0) },
-                    energyKcalServing: nil,
-                    proteinsServing: nil,
-                    carbohydratesServing: nil,
-                    sugarsServing: nil,
-                    fatServing: nil,
-                    saturatedFatServing: nil,
-                    fiberServing: nil,
-                    sodiumServing: nil
+                    cholesterol100g: mgToPer100g(existingFood.cholesterol),
+                    vitaminA100g: mcgToPer100g(existingFood.vitaminA),
+                    vitaminC100g: mgToPer100g(existingFood.vitaminC),
+                    vitaminD100g: mcgToPer100g(existingFood.vitaminD),
+                    vitaminE100g: mgToPer100g(existingFood.vitaminE),
+                    vitaminK100g: mcgToPer100g(existingFood.vitaminK),
+                    vitaminB6100g: mgToPer100g(existingFood.vitaminB6),
+                    vitaminB12100g: mcgToPer100g(existingFood.vitaminB12),
+                    folate100g: mcgToPer100g(existingFood.folate),
+                    choline100g: mgToPer100g(existingFood.choline),
+                    calcium100g: mgToPer100g(existingFood.calcium),
+                    iron100g: mgToPer100g(existingFood.iron),
+                    potassium100g: mgToPer100g(existingFood.potassium),
+                    magnesium100g: mgToPer100g(existingFood.magnesium),
+                    zinc100g: mgToPer100g(existingFood.zinc),
+                    caffeine100g: mgToPer100g(existingFood.caffeine),
+                    energyKcalServing: FlexibleDouble(existingFood.calories),
+                    proteinsServing: FlexibleDouble(existingFood.protein),
+                    carbohydratesServing: FlexibleDouble(existingFood.carbs),
+                    sugarsServing: existingFood.sugar.map { FlexibleDouble($0) },
+                    fatServing: FlexibleDouble(existingFood.fat),
+                    saturatedFatServing: existingFood.saturatedFat.map { FlexibleDouble($0) },
+                    fiberServing: existingFood.fiber.map { FlexibleDouble($0) },
+                    sodiumServing: existingFood.sodium.map { FlexibleDouble($0) }
                 ),
-                servingSize: "\(existingFood.gramsPerServing)g",
-                quantity: "\(Int(existingFood.gramsPerServing))g",
-                portions: existingFood.portions?.map { ServingPortion(id: $0.id, amount: $0.amount, modifier: $0.modifier, gramWeight: $0.gramWeight) },
+                servingSize: {
+                    if let defaultServing = existingFood.defaultServing {
+                        if actualLoggedGrams > 0 && actualLoggedGrams != (defaultServing.gramWeight ?? 0) {
+                            return "\(defaultServing.label) (\(Int(actualLoggedGrams))g)"
+                        } else {
+                            let label = defaultServing.label
+                            // Prefix with "1 " if no leading number so ServingSizeParser defaults to .serving
+                            return label.first?.isNumber == true ? label : "1 \(label)"
+                        }
+                    } else if actualLoggedGrams > 0 {
+                        return "\(Int(actualLoggedGrams))g"
+                    } else {
+                        return "1 serving"
+                    }
+                }(),
+                quantity: nil,
+                portions: nil,
                 countriesTags: nil,
-                lastUsed: mostRecentLog?.timestamp ?? existingFood.lastUsed
+                lastUsed: mostRecentLog?.timestamp
             )
             
-            selectedProductContext = (productInfo, existingFood, lastServingAmount, lastPortionId)
+            selectedProductContext = (productInfo, existingFood, lastServingAmount, nil, mostRecentLog?.servingSize?.label)
         } else if product.code.hasPrefix("usda_") {
             // New USDA product - fetch full details to get portions
             Task {
@@ -830,7 +1131,22 @@ struct FoodSearchView: View {
                     }
                 } catch {
                     print("❌ Failed to fetch USDA details: \(error)")
-                    // Fall back to basic product if details fail
+                    await MainActor.run {
+                        selectedProduct = product
+                    }
+                }
+            }
+        } else if product.code.hasPrefix("fatsecret_") {
+            // New FatSecret product - fetch full details to get sodium, fiber, sugar, etc.
+            let foodId = String(product.code.dropFirst("fatsecret_".count))
+            Task {
+                do {
+                    let detailedFood = try await FatSecretService.shared.getFoodDetails(foodId: foodId)
+                    await MainActor.run {
+                        selectedProduct = detailedFood.toProductInfo() ?? product
+                    }
+                } catch {
+                    print("❌ Failed to fetch FatSecret details: \(error)")
                     await MainActor.run {
                         selectedProduct = product
                     }
@@ -858,6 +1174,7 @@ private struct ProductContext: Identifiable {
     let existingFood: FoodItem?
     let initialServingAmount: Double?
     let initialPortionId: Int?
+    let initialUnit: String?
 }
 
 struct ProductQuickRow: View {
@@ -875,11 +1192,20 @@ struct ProductQuickRow: View {
                 
                 VStack(alignment: .leading, spacing: 6) {
                     
-                    Text(product.displayName)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color("TextPrimary"))
-                        .lineLimit(2)
+                    HStack(spacing: 6) {
+                        Text(product.displayName)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Color("TextPrimary"))
+                            .lineLimit(2)
+                        
+                        Spacer()
+                        
+                        // Database source badge (only if not My Foods)
+                        if product.lastUsed == nil {
+                            databaseBadge
+                        }
+                    }
                     
                     if let brand = product.brands,
                        !brand.isEmpty {
@@ -891,10 +1217,32 @@ struct ProductQuickRow: View {
                     
                     HStack(spacing: 4) {
                         if let nutriments = product.nutriments {
-                            Text("\(Int(nutriments.calories)) cal per 100g")
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundStyle(Color("BrandAccent"))
+                            // Show calories per serving if available, otherwise per 100g
+                            if let servingCal = nutriments.energyKcalServing?.value,
+                               servingCal > 0,
+                               let servingSize = product.servingSize,
+                               !servingSize.isEmpty {
+                                Text("\(Int(servingCal)) cal per \(servingSize)")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(Color("BrandAccent"))
+                            } else if let portions = product.portions,
+                                      let firstPortion = portions.first {
+                                // USDA foods with portions - show cal per portion
+                                let gramsInPortion = firstPortion.gramWeight
+                                let calPer100g = nutriments.calories
+                                let calPerPortion = (calPer100g / 100.0) * gramsInPortion
+                                Text("\(Int(calPerPortion)) cal per \(firstPortion.modifier)")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(Color("BrandAccent"))
+                            } else {
+                                // Fallback to per 100g
+                                Text("\(Int(nutriments.calories)) cal per 100g")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(Color("BrandAccent"))
+                            }
                         }
                         
                         if let lastUsed = product.lastUsed {
@@ -947,6 +1295,46 @@ struct ProductQuickRow: View {
         }
     }
     
+    // MARK: - Database Badge
+    
+    @ViewBuilder
+    private var databaseBadge: some View {
+        let (label, color) = databaseSource
+        
+        Text(label)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(color, in: Capsule())
+    }
+    
+    private var databaseSource: (String, Color) {
+        if product.code.hasPrefix("usda_") {
+            // Check if it's FNDDS or SR Legacy based on product name patterns
+            // FNDDS tends to have more specific restaurant/brand items
+            let name = product.displayName.lowercased()
+            
+            // Common FNDDS indicators
+            if name.contains("mcdonald") || name.contains("burger king") || 
+               name.contains("taco bell") || name.contains("subway") ||
+               name.contains("pizza hut") || name.contains("wendy") ||
+               name.contains("kfc") || name.contains("domino") ||
+               name.contains("chick-fil-a") || name.contains("panera") ||
+               name.contains("chipotle") || name.contains("arby") {
+                return ("FNDDS", .orange)
+            }
+            
+            return ("USDA", .green)
+        } else if product.code.hasPrefix("fatsecret_") {
+            return ("FS", .red)
+        } else if product.code.hasPrefix("myfoods_") {
+            return ("MINE", .purple)
+        } else {
+            return ("OFF", .blue)
+        }
+    }
+    
     // MARK: - Helper
     
     private func lastUsedText(for date: Date) -> String {
@@ -986,29 +1374,24 @@ struct MyFoodsListView: View {
         let groupedByName = Dictionary(grouping: allFoodItems) { $0.name }
         
         // For each group, prefer FoodItems with better serving descriptions
-        // (ones that don't end with "serving" or "g")
         let uniqueFoods = groupedByName.compactMap { (name, items) -> FoodItem? in
             // Prefer manual entries (better descriptions) over API entries
             let preferred = items.first { food in
-                let desc = food.servingDescription.lowercased()
-                return !desc.hasSuffix("serving") && !desc.hasSuffix("g")
+                if let defaultServing = food.defaultServing {
+                    let desc = defaultServing.label.lowercased()
+                    return !desc.hasSuffix("serving") && !desc.hasSuffix("g")
+                }
+                return false
             }
             return preferred ?? items.first
         }
         
-        // Update lastUsed dates from logs if not already set
-        for foodItem in uniqueFoods {
-            // Find the most recent log for this food item
-            if let mostRecentLog = allLogs.first(where: { $0.foodItem?.id == foodItem.id }) {
-                // Only update if lastUsed is nil or older than the most recent log
-                if foodItem.lastUsed == nil || foodItem.lastUsed! < mostRecentLog.timestamp {
-                    foodItem.lastUsed = mostRecentLog.timestamp
-                }
-            }
-        }
-        
         let filteredFoods = uniqueFoods.filter { food in
-            searchText.isEmpty || food.name.localizedCaseInsensitiveContains(searchText)
+            if searchText.isEmpty { return true }
+            let name = food.name.lowercased()
+            let brand = food.brand?.lowercased() ?? ""
+            let combinedText = "\(name) \(brand)"
+            return combinedText.contains(searchText.lowercased())
         }
         return filteredFoods.sorted { $0.name < $1.name }
     }
@@ -1031,11 +1414,22 @@ struct MyFoodsListView: View {
         }
     }
     
+    // Pre-compute last-used dates from allLogs (already sorted newest-first)
+    // so FoodItemRow doesn't fire a lazy relationship load per row.
+    private var lastUsedDates: [UUID: Date] {
+        var result: [UUID: Date] = [:]
+        for log in allLogs {
+            guard let food = log.foodItem, result[food.id] == nil else { continue }
+            result[food.id] = log.timestamp
+        }
+        return result
+    }
+
     private var foodListView: some View {
         ScrollView {
             LazyVStack(spacing: 8) {
                 ForEach(sortedFoods, id: \.id) { foodItem in
-                    FoodItemRow(foodItem: foodItem, onTap: {
+                    FoodItemRow(foodItem: foodItem, lastUsed: lastUsedDates[foodItem.id], onTap: {
                         onFoodSelected(foodItem)
                     })
                 }
@@ -1047,6 +1441,7 @@ struct MyFoodsListView: View {
 
 struct FoodItemRow: View {
     let foodItem: FoodItem
+    let lastUsed: Date?
     let onTap: () -> Void
     
     var body: some View {
@@ -1067,14 +1462,21 @@ struct FoodItemRow: View {
                 }
                 
                 HStack(spacing: 4) {
-                    Text("\(Int(foodItem.caloriesPer100g)) cal/\(foodItem.servingDescription)")
-                        .font(.caption2)
-                        .foregroundStyle(.blue)
-                    
-                    if let lastUsed = foodItem.lastUsed {
-                        Text("•")
-                            .foregroundStyle(.secondary)
+                    // Display calories per base serving
+                    if let defaultServing = foodItem.defaultServing {
+                        Text(caloriesDisplayText(for: foodItem, serving: defaultServing))
                             .font(.caption2)
+                            .foregroundStyle(.blue)
+                    } else {
+                        Text("\(Int(foodItem.calories)) cal")
+                            .font(.caption2)
+                            .foregroundStyle(.blue)
+                    }
+
+                    if let lastUsed {
+                        Text("•")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                         Text(lastUsedText(for: lastUsed))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -1122,25 +1524,30 @@ struct FoodItemRow: View {
     
     @ViewBuilder
     private var foodImageView: some View {
-        if let imageURL = foodItem.imageURL, let url = URL(string: imageURL) {
-            AsyncImage(url: url) { image in
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Color.gray.opacity(0.2)
-            }
+        RoundedRectangle(cornerRadius: 8)
+            .fill(.quaternary)
             .frame(width: 50, height: 50)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                Image(systemName: "fork.knife")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+    }
+    
+    private func caloriesDisplayText(for foodItem: FoodItem, serving: ServingSize) -> String {
+        if foodItem.nutritionMode == .per100g, let gramWeight = serving.gramWeight, gramWeight > 0 {
+            // For per-100g foods, calculate calories for the serving
+            let displayCalories = Int((foodItem.calories / 100.0) * gramWeight)
+            
+            // Format serving size nicely
+            let gramsText = gramWeight.truncatingRemainder(dividingBy: 1) == 0
+                ? String(Int(gramWeight))
+                : String(format: "%.0f", gramWeight)
+            return "\(displayCalories) cal per \(gramsText)g"
         } else {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(.quaternary)
-                .frame(width: 50, height: 50)
-                .overlay {
-                    Image(systemName: "fork.knife")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+            // For per-serving foods, use calories directly
+            let displayCalories = Int(foodItem.calories)
+            return "\(displayCalories) cal/\(serving.label)"
         }
     }
 }
@@ -1151,15 +1558,24 @@ struct RecentFoodsForMealView: View {
     let allLogs: [FoodLog]
     let mealType: MealType
     let onFoodSelected: (FoodItem) -> Void
-    
+
+    private var lastUsedDates: [UUID: Date] {
+        var result: [UUID: Date] = [:]
+        for log in allLogs {
+            guard let food = log.foodItem, result[food.id] == nil else { continue }
+            result[food.id] = log.timestamp
+        }
+        return result
+    }
+
     private var recentFoods: [FoodItem] {
         // Get all logs for this meal type
-        let mealLogs = allLogs.filter { $0.meal == mealType }
+        let mealLogs = allLogs.filter { $0.mealType == mealType }
         
         // Get food items already logged today for this meal
         let todaysFoodIDs = Set(
             allLogs
-                .filter { Calendar.current.isDate($0.timestamp, inSameDayAs: Date()) && $0.meal == mealType }
+                .filter { Calendar.current.isDate($0.timestamp, inSameDayAs: Date()) && $0.mealType == mealType }
                 .compactMap { $0.foodItem?.id }
         )
         
@@ -1181,17 +1597,6 @@ struct RecentFoodsForMealView: View {
             
             // Stop at 10 items
             if uniqueFoods.count >= 10 { break }
-        }
-        
-        // Update lastUsed dates from logs if not already set
-        for foodItem in uniqueFoods {
-            // Find the most recent log for this food item
-            if let mostRecentLog = allLogs.first(where: { $0.foodItem?.id == foodItem.id }) {
-                // Only update if lastUsed is nil or older than the most recent log
-                if foodItem.lastUsed == nil || foodItem.lastUsed! < mostRecentLog.timestamp {
-                    foodItem.lastUsed = mostRecentLog.timestamp
-                }
-            }
         }
         
         return uniqueFoods
@@ -1216,7 +1621,7 @@ struct RecentFoodsForMealView: View {
                         
                         LazyVStack(spacing: 8) {
                             ForEach(recentFoods, id: \.id) { foodItem in
-                                FoodItemRow(foodItem: foodItem, onTap: {
+                                FoodItemRow(foodItem: foodItem, lastUsed: lastUsedDates[foodItem.id], onTap: {
                                     onFoodSelected(foodItem)
                                 })
                             }

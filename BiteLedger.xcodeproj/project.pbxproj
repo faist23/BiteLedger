@@ -10,6 +10,8 @@
 		7E89B5872F439A4600B23EA8 /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = 7E89B5862F439A4000B23EA8 /* .gitignore */; };
 		7E89B5892F439B9E00B23EA8 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 7E89B5882F439B9E00B23EA8 /* README.md */; };
 		7E89B5A92F45FCBE00B23EA8 /* CAMERA_SETUP.md in Resources */ = {isa = PBXBuildFile; fileRef = 7E89B5A82F45FCBE00B23EA8 /* CAMERA_SETUP.md */; };
+		7EC34A822F5214790041ECE0 /* ARCHITECTURE.md in Resources */ = {isa = PBXBuildFile; fileRef = 7EC34A812F5214790041ECE0 /* ARCHITECTURE.md */; };
+		7EC34A8A2F55EEA60041ECE0 /* CLAUDE.md in Resources */ = {isa = PBXBuildFile; fileRef = 7EC34A892F55EEA60041ECE0 /* CLAUDE.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -36,6 +38,8 @@
 		7E89B5862F439A4000B23EA8 /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
 		7E89B5882F439B9E00B23EA8 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		7E89B5A82F45FCBE00B23EA8 /* CAMERA_SETUP.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CAMERA_SETUP.md; sourceTree = "<group>"; };
+		7EC34A812F5214790041ECE0 /* ARCHITECTURE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = ARCHITECTURE.md; sourceTree = "<group>"; };
+		7EC34A892F55EEA60041ECE0 /* CLAUDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLAUDE.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -84,6 +88,8 @@
 		7E89B5352F43963C00B23EA8 = {
 			isa = PBXGroup;
 			children = (
+				7EC34A812F5214790041ECE0 /* ARCHITECTURE.md */,
+				7EC34A892F55EEA60041ECE0 /* CLAUDE.md */,
 				7E89B5862F439A4000B23EA8 /* .gitignore */,
 				7E89B5882F439B9E00B23EA8 /* README.md */,
 				7E89B5402F43963C00B23EA8 /* BiteLedger */,
@@ -227,6 +233,8 @@
 				7E89B5872F439A4600B23EA8 /* .gitignore in Resources */,
 				7E89B5892F439B9E00B23EA8 /* README.md in Resources */,
 				7E89B5A92F45FCBE00B23EA8 /* CAMERA_SETUP.md in Resources */,
+				7EC34A8A2F55EEA60041ECE0 /* CLAUDE.md in Resources */,
+				7EC34A822F5214790041ECE0 /* ARCHITECTURE.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

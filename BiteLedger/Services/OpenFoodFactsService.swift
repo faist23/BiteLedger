@@ -312,6 +312,14 @@ struct Nutriments: Codable {
     let saturatedFatServing: FlexibleDouble?
     let fiberServing: FlexibleDouble?
     let sodiumServing: FlexibleDouble?
+    // Per-serving minerals/vitamins (FatSecret only — not in OpenFoodFacts JSON)
+    // These use default values so CodingKeys-based synthesis still works for OFf responses.
+    var potassiumServing: FlexibleDouble? = nil   // mg/serving
+    var cholesterolServing: FlexibleDouble? = nil // mg/serving
+    var calciumServing: FlexibleDouble? = nil     // mg/serving
+    var ironServing: FlexibleDouble? = nil        // mg/serving
+    var vitaminAServing: FlexibleDouble? = nil    // mcg/serving
+    var vitaminCServing: FlexibleDouble? = nil    // mg/serving
     
     enum CodingKeys: String, CodingKey {
         case energyKcal100g = "energy-kcal_100g"
@@ -361,18 +369,94 @@ struct Nutriments: Codable {
         return energyKcalComputed ?? 0
     }
     
+    /// Determine the nutrition reference type for this product
+    /// - Parameter servingGrams: The gram weight of the serving size, if known (0 if unknown)
+    func nutritionReferenceType(servingGrams: Double = -1) -> String {
+        // If serving has no gram weight (0g), prefer per-serving data if available
+        if servingGrams == 0, let servingCal = energyKcalServing?.value, servingCal > 0 {
+            return "perServing"
+        }
+        
+        // Check if we have actual per-100g data
+        if let kcal100g = energyKcal100g?.value, kcal100g > 0 {
+            return "per100g"
+        } else if let servingCal = energyKcalServing?.value, servingCal > 0 {
+            return "perServing"
+        }
+        return "per100g"  // Default
+    }
+    
     /// Convert to app's NutritionFacts model
-    func toNutritionFacts(servingMultiplier: Double = 1.0) -> NutritionFacts {
-        // Always use per 100g values as base, then apply multiplier
+    /// - Parameters:
+    ///   - servingMultiplier: Multiplier for nutrition values
+    ///   - servingGrams: Gram weight of serving (0 if unknown, use per-serving data)
+    func toNutritionFacts(servingMultiplier: Double = 1.0, servingGrams: Double = -1) -> NutritionFacts {
+        // Prefer per-100g values, but fall back to per-serving values if available (e.g., FatSecret)
+        // For per-serving values, apply the multiplier directly (it's already per serving)
+        let caloriesValue: Double
+        let proteinValue: Double
+        let carbsValue: Double
+        let fatValue: Double
+        let fiberValue: Double
+        let sugarValue: Double
+        let sodiumValue: Double
+        let saturatedFatValue: Double
+        
+        print("🍽️ toNutritionFacts called with multiplier: \(servingMultiplier), servingGrams: \(servingGrams)")
+        print("🍽️ energyKcal100g: \(energyKcal100g?.value ?? 0)")
+        print("🍽️ energyKcalServing: \(energyKcalServing?.value ?? 0)")
+        
+        // Prefer per-serving data if it exists (FatSecret, manually entered foods with perServing type)
+        // This handles both cases: servingGrams == 0 (FatSecret) and servingGrams > 0 (Halos)
+        let hasServingData = energyKcalServing?.value ?? 0 > 0
+        
+        // Check if we have actual per-100g data (not just computed calories)
+        // Only use per-100g if we don't have serving data
+        if !hasServingData, let kcal100g = energyKcal100g?.value, kcal100g > 0 {
+            // Has per-100g data - use it with multiplier
+            print("🍽️ Using per-100g nutrition data")
+            caloriesValue = kcal100g * servingMultiplier
+            proteinValue = (proteins100g?.value ?? 0) * servingMultiplier
+            carbsValue = (carbohydrates100g?.value ?? 0) * servingMultiplier
+            fatValue = (fat100g?.value ?? 0) * servingMultiplier
+            fiberValue = (fiber100g?.value ?? 0) * servingMultiplier
+            sugarValue = (sugars100g?.value ?? 0) * servingMultiplier
+            sodiumValue = (sodium100g?.value ?? 0) * servingMultiplier
+            saturatedFatValue = (saturatedFat100g?.value ?? 0) * servingMultiplier
+        } else if let servingCal = energyKcalServing?.value, servingCal > 0 {
+            // Has per-serving data (e.g., FatSecret or items with no gram weight) - use it with multiplier
+            print("🍽️ Using per-serving nutrition data: \(servingCal) cal")
+            caloriesValue = servingCal * servingMultiplier
+            proteinValue = (proteinsServing?.value ?? 0) * servingMultiplier
+            carbsValue = (carbohydratesServing?.value ?? 0) * servingMultiplier
+            fatValue = (fatServing?.value ?? 0) * servingMultiplier
+            fiberValue = (fiberServing?.value ?? 0) * servingMultiplier
+            sugarValue = (sugarsServing?.value ?? 0) * servingMultiplier
+            sodiumValue = (sodiumServing?.value ?? 0) * servingMultiplier
+            saturatedFatValue = (saturatedFatServing?.value ?? 0) * servingMultiplier
+            print("🍽️ Calculated values - cal: \(caloriesValue), protein: \(proteinValue), carbs: \(carbsValue), fat: \(fatValue), fiber: \(fiberValue), sugar: \(sugarValue), sodium(g): \(sodiumValue)")
+        } else {
+            // No data
+            print("🍽️ No nutrition data available")
+            caloriesValue = 0
+            proteinValue = 0
+            carbsValue = 0
+            fatValue = 0
+            fiberValue = 0
+            sugarValue = 0
+            sodiumValue = 0
+            saturatedFatValue = 0
+        }
+        
         return NutritionFacts(
-            caloriesPer100g: calories * servingMultiplier,
-            proteinPer100g: (proteins100g?.value ?? 0) * servingMultiplier,
-            carbsPer100g: (carbohydrates100g?.value ?? 0) * servingMultiplier,
-            fatPer100g: (fat100g?.value ?? 0) * servingMultiplier,
-            fiberPer100g: (fiber100g?.value ?? 0) * servingMultiplier,
-            sugarPer100g: (sugars100g?.value ?? 0) * servingMultiplier,
-            sodiumPer100g: (sodium100g?.value ?? 0) * servingMultiplier,
-            saturatedFatPer100g: (saturatedFat100g?.value ?? 0) * servingMultiplier,
+            caloriesPer100g: caloriesValue,
+            proteinPer100g: proteinValue,
+            carbsPer100g: carbsValue,
+            fatPer100g: fatValue,
+            fiberPer100g: fiberValue,
+            sugarPer100g: sugarValue,
+            sodiumPer100g: sodiumValue,
+            saturatedFatPer100g: saturatedFatValue,
             transFatPer100g: (transFat100g?.value ?? 0) * servingMultiplier,
             monounsaturatedFatPer100g: (monounsaturatedFat100g?.value ?? 0) * servingMultiplier,
             polyunsaturatedFatPer100g: (polyunsaturatedFat100g?.value ?? 0) * servingMultiplier,

@@ -29,6 +29,40 @@ class USDAFoodDataService {
     ///   - pageSize: Number of results per page
     /// - Returns: Array of USDA food items
     func searchFoods(query: String, page: Int = 1, pageSize: Int = 25) async throws -> [USDAFoodItem] {
+        // Search both SR Legacy (whole foods) and Survey (FNDDS - restaurant foods) in parallel
+        async let srLegacyResults = searchFoodsByDataType(query: query, dataType: "SR Legacy", page: page, pageSize: pageSize)
+        async let fnddsResults = searchFoodsByDataType(query: query, dataType: "Survey (FNDDS)", page: page, pageSize: pageSize)
+        
+        var allResults: [USDAFoodItem] = []
+        
+        // SR Legacy first (whole foods with good portion data)
+        do {
+            let srFoods = try await srLegacyResults
+            print("✅ SR Legacy returned \(srFoods.count) results")
+            allResults.append(contentsOf: srFoods)
+        } catch {
+            print("⚠️ SR Legacy search failed: \(error.localizedDescription)")
+        }
+        
+        // FNDDS second (restaurant and survey foods)
+        do {
+            let surveyFoods = try await fnddsResults
+            print("✅ Survey (FNDDS) returned \(surveyFoods.count) results")
+            allResults.append(contentsOf: surveyFoods)
+        } catch {
+            print("⚠️ Survey (FNDDS) search failed: \(error.localizedDescription)")
+        }
+        
+        // If both failed, throw an error
+        if allResults.isEmpty {
+            throw USDAError.noResults
+        }
+        
+        return allResults
+    }
+    
+    /// Search for foods by specific data type
+    private func searchFoodsByDataType(query: String, dataType: String, page: Int, pageSize: Int) async throws -> [USDAFoodItem] {
         guard var components = URLComponents(string: "\(baseURL)/foods/search") else {
             throw USDAError.invalidURL
         }
@@ -38,16 +72,14 @@ class USDAFoodDataService {
             URLQueryItem(name: "pageSize", value: "\(pageSize)"),
             URLQueryItem(name: "pageNumber", value: "\(page)"),
             URLQueryItem(name: "api_key", value: apiKey),
-            // SR Legacy has proper portion descriptions (medium, large, etc.)
-            // Survey (FNDDS) uses numeric codes instead of text
-            URLQueryItem(name: "dataType", value: "SR Legacy")
+            URLQueryItem(name: "dataType", value: dataType)
         ]
         
         guard let url = components.url else {
             throw USDAError.invalidURL
         }
         
-        print("🌐 USDA API Request: \(url.absoluteString)")
+        print("🌐 USDA API Request [\(dataType)]: \(url.absoluteString)")
         
         var request = URLRequest(url: url)
         request.setValue("BiteLedger - iOS Food Tracker", forHTTPHeaderField: "User-Agent")
@@ -58,11 +90,11 @@ class USDAFoodDataService {
             throw USDAError.invalidResponse
         }
         
-        print("🌐 USDA API Response status: \(httpResponse.statusCode)")
+        print("🌐 USDA API Response [\(dataType)] status: \(httpResponse.statusCode)")
         
         guard httpResponse.statusCode == 200 else {
             if let errorString = String(data: data, encoding: .utf8) {
-                print("❌ USDA API Error response: \(errorString)")
+                print("❌ USDA API Error response [\(dataType)]: \(errorString)")
             }
             throw USDAError.httpError(statusCode: httpResponse.statusCode)
         }
@@ -70,18 +102,18 @@ class USDAFoodDataService {
         let decoder = JSONDecoder()
         do {
             let searchResponse = try decoder.decode(USDASearchResponse.self, from: data)
-            print("🌐 USDA decoded successfully: \(searchResponse.foods.count) foods")
+            print("🌐 USDA [\(dataType)] decoded successfully: \(searchResponse.foods.count) foods")
             
             // Log first few foods for debugging
             for (index, food) in searchResponse.foods.prefix(3).enumerated() {
-                print("🥕 Food \(index + 1): \(food.description)")
+                print("🥕 [\(dataType)] Food \(index + 1): \(food.description)")
                 print("   - FDC ID: \(food.fdcId)")
                 print("   - Data Type: \(food.dataType)")
             }
             
             return searchResponse.foods
         } catch {
-            print("❌ USDA Decoding error: \(error)")
+            print("❌ USDA [\(dataType)] Decoding error: \(error)")
             throw USDAError.decodingError(error)
         }
     }
@@ -276,7 +308,7 @@ extension USDAFoodItem {
             monounsaturatedFat100g: nil,
             polyunsaturatedFat100g: nil,
             fiber100g: FlexibleDouble(fiber),
-            sodium100g: FlexibleDouble(sodium),
+            sodium100g: FlexibleDouble(sodium / 1000),  // mg → g
             salt100g: nil,
             cholesterol100g: nil,
             vitaminA100g: nil,
@@ -386,6 +418,14 @@ extension USDAFoodDetail {
             }
         }
         
+        // USDA is a per-100g database. Do NOT populate *Serving fields here.
+        // The picker's nutritionMultiplier uses totalGrams/100 when hasServingData == false,
+        // which correctly scales all *100g nutrients (including sodium, cholesterol) by the
+        // selected portion's gram weight. Populating *Serving from the wrong (unsorted) portion
+        // would cause the picker to show 1452 cal for a single frankfurter.
+
+        // Nutriments.*100g fields use g/100g (OpenFoodFacts convention).
+        // USDA provides micronutrients in mg or mcg per 100g — must convert.
         let nutriments = Nutriments(
             energyKcal100g: FlexibleDouble(calories),
             energyKcalComputed: calories,
@@ -398,24 +438,24 @@ extension USDAFoodDetail {
             monounsaturatedFat100g: FlexibleDouble(monounsaturatedFat),
             polyunsaturatedFat100g: FlexibleDouble(polyunsaturatedFat),
             fiber100g: FlexibleDouble(fiber),
-            sodium100g: FlexibleDouble(sodium),
+            sodium100g: FlexibleDouble(sodium / 1000),           // mg → g
             salt100g: nil,
-            cholesterol100g: FlexibleDouble(cholesterol),
-            vitaminA100g: FlexibleDouble(vitaminA),
-            vitaminC100g: FlexibleDouble(vitaminC),
-            vitaminD100g: FlexibleDouble(vitaminD),
-            vitaminE100g: FlexibleDouble(vitaminE),
-            vitaminK100g: FlexibleDouble(vitaminK),
-            vitaminB6100g: FlexibleDouble(vitaminB6),
-            vitaminB12100g: FlexibleDouble(vitaminB12),
-            folate100g: FlexibleDouble(folate),
-            choline100g: FlexibleDouble(choline),
-            calcium100g: FlexibleDouble(calcium),
-            iron100g: FlexibleDouble(iron),
-            potassium100g: FlexibleDouble(potassium),
-            magnesium100g: FlexibleDouble(magnesium),
-            zinc100g: FlexibleDouble(zinc),
-            caffeine100g: FlexibleDouble(caffeine),
+            cholesterol100g: FlexibleDouble(cholesterol / 1000), // mg → g
+            vitaminA100g: FlexibleDouble(vitaminA / 1_000_000),  // mcg → g
+            vitaminC100g: FlexibleDouble(vitaminC / 1000),       // mg → g
+            vitaminD100g: FlexibleDouble(vitaminD / 1_000_000),  // mcg → g
+            vitaminE100g: FlexibleDouble(vitaminE / 1000),       // mg → g
+            vitaminK100g: FlexibleDouble(vitaminK / 1_000_000),  // mcg → g
+            vitaminB6100g: FlexibleDouble(vitaminB6 / 1000),     // mg → g
+            vitaminB12100g: FlexibleDouble(vitaminB12 / 1_000_000), // mcg → g
+            folate100g: FlexibleDouble(folate / 1_000_000),      // mcg → g
+            choline100g: FlexibleDouble(choline / 1000),         // mg → g
+            calcium100g: FlexibleDouble(calcium / 1000),         // mg → g
+            iron100g: FlexibleDouble(iron / 1000),               // mg → g
+            potassium100g: FlexibleDouble(potassium / 1000),     // mg → g
+            magnesium100g: FlexibleDouble(magnesium / 1000),     // mg → g
+            zinc100g: FlexibleDouble(zinc / 1000),               // mg → g
+            caffeine100g: FlexibleDouble(caffeine / 1000),       // mg → g
             energyKcalServing: nil,
             proteinsServing: nil,
             carbohydratesServing: nil,
@@ -446,7 +486,8 @@ extension USDAFoodDetail {
                 return nil
             }
             
-            // Skip portions that are numeric codes (Survey/FNDDS data)
+            // Skip portions that are purely numeric codes (Survey/FNDDS sometimes has these)
+            // But keep portions like "1 cup" or "1 serving"
             if modifier.range(of: "^[0-9]+$", options: .regularExpression) != nil {
                 print("   ⚠️ Skipping numeric portion code: '\(modifier)'")
                 return nil
@@ -463,10 +504,22 @@ extension USDAFoodDetail {
                 .replacingOccurrences(of: " (9\" or longer)", with: "")
                 .replacingOccurrences(of: " (less than 6\" long)", with: "")
             
-            // Skip NLEA serving in favor of the actual size-based portions
-            if cleanModifier.lowercased() == "nlea serving" {
-                print("   ⚠️ Skipping NLEA serving in favor of size-based portions")
-                return nil
+            // For Survey/FNDDS data, keep "1.0 serving" portions as they're meaningful
+            // Skip only if there are better alternatives
+            let isServingPortion = cleanModifier.lowercased().contains("serving")
+            let isNLEAServing = cleanModifier.lowercased() == "nlea serving"
+            
+            // Skip NLEA serving only if we have other non-serving portions
+            if isNLEAServing {
+                let hasOtherPortions = portions?.contains(where: { otherPortion in
+                    guard let otherMod = otherPortion.modifier?.lowercased() else { return false }
+                    return !otherMod.contains("serving") && !otherMod.contains("100")
+                }) ?? false
+                
+                if hasOtherPortions {
+                    print("   ⚠️ Skipping NLEA serving in favor of size-based portions")
+                    return nil
+                }
             }
             
             print("   ✅ Keeping portion: \(cleanModifier)")
@@ -478,11 +531,22 @@ extension USDAFoodDetail {
             )
         }
         
-        print("🍌 Filtered to \(servingPortions?.count ?? 0) meaningful portions")
-        
+        // Sort portions: prefer individual-unit portions over bulk/package descriptors.
+        // "package", "bag", "box", "container", "can" go to the end so the picker
+        // defaults to the single-item serving (e.g., "frankfurter" over "package").
+        let bulkKeywords = ["package", "bag", "box", "container", "can", "jar", "bottle", "carton"]
+        let sortedPortions = servingPortions?.sorted { a, b in
+            let aIsBulk = bulkKeywords.contains(where: { a.modifier.lowercased().contains($0) })
+            let bIsBulk = bulkKeywords.contains(where: { b.modifier.lowercased().contains($0) })
+            if aIsBulk != bIsBulk { return !aIsBulk }
+            return false
+        }
+
+        print("🍌 Filtered to \(sortedPortions?.count ?? 0) meaningful portions")
+
         // Use first portion as default serving size, or 100g if none available
         let defaultServing: String
-        if let firstPortion = servingPortions?.first {
+        if let firstPortion = sortedPortions?.first {
             // Format: "1.0 medium (118g)" so the parser can extract gram weight
             let gramWeight = Int(firstPortion.gramWeight)
             defaultServing = "1.0 \(firstPortion.modifier) (\(gramWeight)g)"
@@ -506,7 +570,7 @@ extension USDAFoodDetail {
             nutriments: nutriments,
             servingSize: defaultServing,
             quantity: portionsList, // Store portions info for reference
-            portions: servingPortions,
+            portions: sortedPortions,
             countriesTags: ["en:united-states"],  // USDA is US-only
             lastUsed: nil  // Not from My Foods
         )
@@ -521,6 +585,7 @@ enum USDAError: LocalizedError {
     case httpError(statusCode: Int)
     case decodingError(Error)
     case noAPIKey
+    case noResults
     
     var errorDescription: String? {
         switch self {
@@ -534,6 +599,8 @@ enum USDAError: LocalizedError {
             return "Failed to decode response: \(error.localizedDescription)"
         case .noAPIKey:
             return "No USDA API key configured. Get one at https://fdc.nal.usda.gov/api-key-signup.html"
+        case .noResults:
+            return "No results found in USDA database"
         }
     }
 }

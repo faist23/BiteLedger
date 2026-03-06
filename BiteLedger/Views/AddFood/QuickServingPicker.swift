@@ -200,28 +200,91 @@ struct QuickServingPicker: View {
     }
     
     private func addToMeal() {
-        guard let nutrition = calculatedNutrition else { return }
-        
-        // Create FoodItem
-        let foodItem = FoodItem(
-            name: product.displayName,
-            brand: product.brands,
-            barcode: product.code,
-            nutritionPer100g: nutrition,
-            servingSize: servingSizeGrams,
-            servingSizeUnit: selectedUnit.abbreviation,
-            source: "OpenFoodFacts",
-            imageURL: product.imageUrl
+        guard let calculatedNutrition = calculatedNutrition else { return }
+
+        // Check if a FoodItem with this barcode already exists
+        let barcode = product.code
+        let descriptor = FetchDescriptor<FoodItem>(
+            predicate: #Predicate { $0.barcode == barcode }
         )
-        
+
+        let foodItem: FoodItem
+        if let existingByBarcode = try? modelContext.fetch(descriptor).first {
+            print("✅ Found existing FoodItem by barcode: \(existingByBarcode.name)")
+            foodItem = existingByBarcode
+        } else {
+            // Create new FoodItem with serving-based nutrition
+
+            // Determine base serving description and grams
+            let baseServingDesc: String
+            // Determine source
+            let source: String
+            if product.code.hasPrefix("usda_") {
+                source = "USDA"
+            } else if product.code.hasPrefix("fatsecret_") {
+                source = "FatSecret"
+            } else {
+                source = "OpenFoodFacts"
+            }
+
+            // Get per-100g nutrition
+            let nutritionFacts = product.nutriments?.toNutritionFacts(servingMultiplier: 1.0) ?? NutritionFacts(caloriesPer100g: 0, proteinPer100g: 0, carbsPer100g: 0, fatPer100g: 0)
+
+            // Create FoodItem with per-100g nutrition
+            foodItem = FoodItem(
+                name: product.displayName,
+                brand: product.brands,
+                barcode: product.code,
+                source: source,
+                nutritionMode: .per100g,
+                calories: nutritionFacts.caloriesPer100g,
+                protein: nutritionFacts.proteinPer100g,
+                carbs: nutritionFacts.carbsPer100g,
+                fat: nutritionFacts.fatPer100g,
+                fiber: product.nutriments?.fiber100g?.value,
+                sugar: product.nutriments?.sugars100g?.value,
+                saturatedFat: product.nutriments?.saturatedFat100g?.value,
+                sodium: product.nutriments?.sodium100g.map { $0.value * 1000 }
+            )
+
+            modelContext.insert(foodItem)
+
+            // Create ServingSize manually
+            let servingLabel: String
+            let servingGrams: Double?
+
+            if let servingSize = product.servingSize {
+                servingLabel = servingSize
+                servingGrams = parseServingSize(servingSize)
+            } else {
+                servingLabel = "100g"
+                servingGrams = 100.0
+            }
+
+            let defaultServing = ServingSize(
+                label: servingLabel,
+                gramWeight: servingGrams,
+                isDefault: true,
+                sortOrder: 0
+            )
+            defaultServing.foodItem = foodItem
+            modelContext.insert(defaultServing)
+            foodItem.servingSizes.append(defaultServing)
+        }
+
+        // Find the default serving size (baseMultiplier = 1.0)
+        guard let servingSize = foodItem.defaultServing else {
+            print("❌ Failed to find default ServingSize")
+            return
+        }
+
         // Create added item
         let addedItem = AddedFoodItem(
             foodItem: foodItem,
-            servings: servingAmount,
-            totalGrams: servingSizeGrams,
-            selectedPortionId: nil  // Quick picker doesn't support portions yet
+            servingSize: servingSize,
+            quantity: servingAmount
         )
-        
+
         onAdd(addedItem)
     }
     

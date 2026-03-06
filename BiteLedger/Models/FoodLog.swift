@@ -5,211 +5,268 @@
 //  Created by Craig Faist on 2/16/26.
 //
 
-
 import SwiftData
 import Foundation
 
+// MARK: - FoodLog
+
 @Model
 final class FoodLog {
+
+    // MARK: Identity
     var id: UUID
-    var foodItem: FoodItem?  // Optional in case food gets deleted
     var timestamp: Date
-    var meal: MealType
-    
-    // What the user logged
-    var servingMultiplier: Double  // 1.5 (ate 1.5 servings)
-    var totalGrams: Double  // calculated: 1.5 × 240g = 360g
-    var selectedPortionId: Int?  // ID of selected USDA portion (if applicable)
-    var displayUnit: String?  // The unit to display (e.g., "g", "oz") - overrides automatic unit detection
-    
-    // Cached nutrition (for performance - calculated at log time)
-    var calories: Double
-    var protein: Double
-    var carbs: Double
-    var fat: Double
-    
-    // Cached micronutrients
-    var fiber: Double?
-    var sugar: Double?
-    var sodium: Double?
-    var saturatedFat: Double?
-    var transFat: Double?
-    var monounsaturatedFat: Double?
-    var polyunsaturatedFat: Double?
-    var cholesterol: Double?
-    
-    // Additional minerals
-    var magnesium: Double?
-    var zinc: Double?
-    
-    // Vitamins
-    var vitaminA: Double?
-    var vitaminC: Double?
-    var vitaminD: Double?
-    var vitaminE: Double?
-    var vitaminK: Double?
-    var vitaminB6: Double?
-    var vitaminB12: Double?
-    var folate: Double?
-    var choline: Double?
-    
-    // Minerals
-    var calcium: Double?
-    var iron: Double?
-    var potassium: Double?
-    
-    // Special tracking
-    var caffeine: Double?
-    
-    // Optional: user notes
-    var notes: String?
-    
+    var mealType: MealType
+
+    // MARK: Quantity
+    /// Number of servings logged. e.g., 1.5 means 1.5 × the selected ServingSize.
+    var quantity: Double
+
+    // MARK: Relationships
+    /// The food that was eaten. Nullified (not deleted) if food is removed.
+    var foodItem: FoodItem?
+
+    /// The specific serving size used. nil means the food's default serving was used.
+    var servingSize: ServingSize?
+
+    // MARK: Frozen Nutrition — SET ONCE AT LOG TIME, NEVER RECALCULATED
+    //
+    // These values are calculated by NutritionCalculator at the moment the user
+    // confirms the log entry and are NEVER updated afterward.
+    //
+    // This ensures that editing a FoodItem later does not rewrite log history.
+    // Always read these fields when displaying a logged entry's nutrition.
+    // Never call NutritionCalculator on a FoodLog that already exists.
+
+    var caloriesAtLogTime: Double
+    var proteinAtLogTime: Double
+    var carbsAtLogTime: Double
+    var fatAtLogTime: Double
+    var fiberAtLogTime: Double?
+    var sodiumAtLogTime: Double?
+    var sugarAtLogTime: Double?
+    var saturatedFatAtLogTime: Double?
+    var transFatAtLogTime: Double?
+    var monounsaturatedFatAtLogTime: Double?
+    var polyunsaturatedFatAtLogTime: Double?
+    var cholesterolAtLogTime: Double?
+    var potassiumAtLogTime: Double?
+    var calciumAtLogTime: Double?
+    var ironAtLogTime: Double?
+    var magnesiumAtLogTime: Double?
+    var zincAtLogTime: Double?
+    var vitaminAAtLogTime: Double?
+    var vitaminCAtLogTime: Double?
+    var vitaminDAtLogTime: Double?
+    var vitaminEAtLogTime: Double?
+    var vitaminKAtLogTime: Double?
+    var vitaminB6AtLogTime: Double?
+    var vitaminB12AtLogTime: Double?
+    var folateAtLogTime: Double?
+    var cholineAtLogTime: Double?
+    var caffeineAtLogTime: Double?
+
+    // MARK: Init
     init(
-        foodItem: FoodItem,
+        id: UUID = UUID(),
         timestamp: Date = Date(),
-        meal: MealType,
-        servingMultiplier: Double,
-        totalGrams: Double,
-        selectedPortionId: Int? = nil
+        mealType: MealType,
+        quantity: Double,
+        foodItem: FoodItem? = nil,
+        servingSize: ServingSize? = nil,
+        caloriesAtLogTime: Double,
+        proteinAtLogTime: Double,
+        carbsAtLogTime: Double,
+        fatAtLogTime: Double,
+        fiberAtLogTime: Double? = nil,
+        sodiumAtLogTime: Double? = nil,
+        sugarAtLogTime: Double? = nil,
+        saturatedFatAtLogTime: Double? = nil,
+        transFatAtLogTime: Double? = nil,
+        monounsaturatedFatAtLogTime: Double? = nil,
+        polyunsaturatedFatAtLogTime: Double? = nil,
+        cholesterolAtLogTime: Double? = nil,
+        potassiumAtLogTime: Double? = nil,
+        calciumAtLogTime: Double? = nil,
+        ironAtLogTime: Double? = nil,
+        magnesiumAtLogTime: Double? = nil,
+        zincAtLogTime: Double? = nil,
+        vitaminAAtLogTime: Double? = nil,
+        vitaminCAtLogTime: Double? = nil,
+        vitaminDAtLogTime: Double? = nil,
+        vitaminEAtLogTime: Double? = nil,
+        vitaminKAtLogTime: Double? = nil,
+        vitaminB6AtLogTime: Double? = nil,
+        vitaminB12AtLogTime: Double? = nil,
+        folateAtLogTime: Double? = nil,
+        cholineAtLogTime: Double? = nil,
+        caffeineAtLogTime: Double? = nil
     ) {
-        self.id = UUID()
-        self.foodItem = foodItem
+        self.id = id
         self.timestamp = timestamp
-        self.meal = meal
-        self.servingMultiplier = servingMultiplier
-        self.totalGrams = totalGrams
-        self.selectedPortionId = selectedPortionId
-        
-        // Calculate and cache nutrition
-        let multiplier = totalGrams / 100.0
-        self.calories = foodItem.caloriesPer100g * multiplier
-        self.protein = foodItem.proteinPer100g * multiplier
-        self.carbs = foodItem.carbsPer100g * multiplier
-        self.fat = foodItem.fatPer100g * multiplier
-        
-        // Cache micronutrients
-        self.fiber = foodItem.fiberPer100g.map { $0 * multiplier }
-        self.sugar = foodItem.sugarPer100g.map { $0 * multiplier }
-        self.sodium = foodItem.sodiumPer100g.map { $0 * multiplier }
-        self.saturatedFat = foodItem.saturatedFatPer100g.map { $0 * multiplier }
-        self.transFat = foodItem.transFatPer100g.map { $0 * multiplier }
-        self.monounsaturatedFat = foodItem.monounsaturatedFatPer100g.map { $0 * multiplier }
-        self.polyunsaturatedFat = foodItem.polyunsaturatedFatPer100g.map { $0 * multiplier }
-        self.cholesterol = foodItem.cholesterolPer100g.map { $0 * multiplier }
-        
-        // Cache additional minerals
-        self.magnesium = foodItem.magnesiumPer100g.map { $0 * multiplier }
-        self.zinc = foodItem.zincPer100g.map { $0 * multiplier }
-        
-        // Cache vitamins
-        self.vitaminA = foodItem.vitaminAPer100g.map { $0 * multiplier }
-        self.vitaminC = foodItem.vitaminCPer100g.map { $0 * multiplier }
-        self.vitaminD = foodItem.vitaminDPer100g.map { $0 * multiplier }
-        self.vitaminE = foodItem.vitaminEPer100g.map { $0 * multiplier }
-        self.vitaminK = foodItem.vitaminKPer100g.map { $0 * multiplier }
-        self.vitaminB6 = foodItem.vitaminB6Per100g.map { $0 * multiplier }
-        self.vitaminB12 = foodItem.vitaminB12Per100g.map { $0 * multiplier }
-        self.folate = foodItem.folatePer100g.map { $0 * multiplier }
-        self.choline = foodItem.cholinePer100g.map { $0 * multiplier }
-        
-        // Cache minerals
-        self.calcium = foodItem.calciumPer100g.map { $0 * multiplier }
-        self.iron = foodItem.ironPer100g.map { $0 * multiplier }
-        self.potassium = foodItem.potassiumPer100g.map { $0 * multiplier }
-        
-        // Cache special tracking
-        self.caffeine = foodItem.caffeinePer100g.map { $0 * multiplier }
+        self.mealType = mealType
+        self.quantity = quantity
+        self.foodItem = foodItem
+        self.servingSize = servingSize
+        self.caloriesAtLogTime = caloriesAtLogTime
+        self.proteinAtLogTime = proteinAtLogTime
+        self.carbsAtLogTime = carbsAtLogTime
+        self.fatAtLogTime = fatAtLogTime
+        self.fiberAtLogTime = fiberAtLogTime
+        self.sodiumAtLogTime = sodiumAtLogTime
+        self.sugarAtLogTime = sugarAtLogTime
+        self.saturatedFatAtLogTime = saturatedFatAtLogTime
+        self.transFatAtLogTime = transFatAtLogTime
+        self.monounsaturatedFatAtLogTime = monounsaturatedFatAtLogTime
+        self.polyunsaturatedFatAtLogTime = polyunsaturatedFatAtLogTime
+        self.cholesterolAtLogTime = cholesterolAtLogTime
+        self.potassiumAtLogTime = potassiumAtLogTime
+        self.calciumAtLogTime = calciumAtLogTime
+        self.ironAtLogTime = ironAtLogTime
+        self.magnesiumAtLogTime = magnesiumAtLogTime
+        self.zincAtLogTime = zincAtLogTime
+        self.vitaminAAtLogTime = vitaminAAtLogTime
+        self.vitaminCAtLogTime = vitaminCAtLogTime
+        self.vitaminDAtLogTime = vitaminDAtLogTime
+        self.vitaminEAtLogTime = vitaminEAtLogTime
+        self.vitaminKAtLogTime = vitaminKAtLogTime
+        self.vitaminB6AtLogTime = vitaminB6AtLogTime
+        self.vitaminB12AtLogTime = vitaminB12AtLogTime
+        self.folateAtLogTime = folateAtLogTime
+        self.cholineAtLogTime = cholineAtLogTime
+        self.caffeineAtLogTime = caffeineAtLogTime
     }
-    
-    /// Format the serving display text (e.g., "2 tbsp" or "1.5 cups" or "1 medium")
-    var servingDisplayText: String {
-        guard let foodItem = foodItem else {
-            return String(format: "%.0fg", totalGrams)
-        }
-        
-        // If displayUnit is explicitly set (e.g., user switched to grams), use it
-        if let displayUnit = displayUnit {
-            if displayUnit == "g" {
-                // Show grams directly
-                return String(format: "%.0fg", totalGrams)
-            } else if displayUnit == "oz" {
-                // Show ounces
-                let ounces = totalGrams / 28.3495
-                if ounces.truncatingRemainder(dividingBy: 1) == 0 {
-                    return "\(Int(ounces)) oz"
+
+    // MARK: Computed Display Helpers
+
+    var servingLabel: String {
+        servingSize?.label ?? foodItem?.defaultServing?.label ?? "1 serving"
+    }
+
+    var quantityDescription: String {
+        // Calculate the actual gram amount if we have gram weight
+        if let gramWeight = servingSize?.gramWeight {
+            let totalGrams = quantity * gramWeight
+            
+            // Format total grams nicely
+            let gramsText = totalGrams.truncatingRemainder(dividingBy: 1) == 0
+                ? String(Int(totalGrams))
+                : String(format: "%.1f", totalGrams)
+            
+            // If serving label is just a unit (g, oz, cup, etc.), show as "88 g" not "88 × g"
+            let label = servingLabel.lowercased()
+            if label == "g" || label == "oz" || label == "cup" || label == "tbsp" || label == "tsp" || label == "ml" {
+                return "\(gramsText) \(label)"
+            }
+            
+            // If serving label already includes a number (like "8 fl oz"), scale it
+            if let firstChar = servingLabel.first, firstChar.isNumber {
+                if quantity == 1.0 {
+                    return servingLabel
+                } else if let spaceIdx = servingLabel.firstIndex(of: " "),
+                          let labelAmount = Double(servingLabel[servingLabel.startIndex..<spaceIdx]) {
+                    // e.g. quantity=0.5, label="8 fl oz" → "4 fl oz"
+                    let scaled = labelAmount * quantity
+                    let unitPart = String(servingLabel[servingLabel.index(after: spaceIdx)...])
+                    let scaledText = scaled.truncatingRemainder(dividingBy: 1) == 0
+                        ? String(Int(scaled))
+                        : String(format: "%.4g", scaled)
+                    return "\(scaledText) \(unitPart)"
                 } else {
-                    return String(format: "%.1f oz", ounces)
+                    let q = quantity.truncatingRemainder(dividingBy: 1) == 0
+                        ? String(Int(quantity))
+                        : String(format: "%.2g", quantity)
+                    return "\(q) \(servingLabel)"
                 }
             }
-            // Other units can be added here as needed
-        }
-        
-        // If a portion is selected, show it (e.g., "1 medium" or "2 large")
-        if let portionId = selectedPortionId,
-           let portions = foodItem.portions,
-           let portion = portions.first(where: { $0.id == portionId }) {
-            if servingMultiplier.truncatingRemainder(dividingBy: 1) == 0 {
-                return "\(Int(servingMultiplier)) \(portion.modifier)"
+            
+            // For custom portion names (like "cup", "bowl", "slice"), show with multiplier
+            if quantity == 1.0 {
+                return servingLabel
             } else {
-                return String(format: "%.1f %@", servingMultiplier, portion.modifier)
+                let q = quantity.truncatingRemainder(dividingBy: 1) == 0
+                    ? String(Int(quantity))
+                    : String(format: "%.2g", quantity)
+                return "\(q) \(servingLabel)"
             }
         }
         
-        // Extract just the unit from servingDescription (e.g., "15.97tbsp" -> "tbsp")
-        let description = foodItem.servingDescription
-        
-        // Try to extract unit abbreviation (non-numeric characters)
-        let unit = description.components(separatedBy: CharacterSet.decimalDigits.union(CharacterSet(charactersIn: "."))).joined()
-        
-        if !unit.isEmpty {
-            // Format: "2 tbsp" or "1.5 cups"
-            if servingMultiplier.truncatingRemainder(dividingBy: 1) == 0 {
-                // Whole number
-                return "\(Int(servingMultiplier)) \(unit)"
-            } else {
-                // Decimal
-                return String(format: "%.1f %@", servingMultiplier, unit)
-            }
+        // No gram weight - fallback to simple quantity and serving
+        if quantity == 1.0 {
+            return servingLabel
         }
-        
-        // Fallback to showing grams
-        return String(format: "%.0fg", totalGrams)
-    }
-    
-    /// Convenience initializer with servings
-    convenience init(
-        foodItem: FoodItem,
-        servings: Double,
-        mealType: MealType,
-        timestamp: Date = Date(),
-        selectedPortionId: Int? = nil
-    ) {
-        let totalGrams = foodItem.gramsPerServing * servings
-        self.init(
-            foodItem: foodItem,
-            timestamp: timestamp,
-            meal: mealType,
-            servingMultiplier: servings,
-            totalGrams: totalGrams,
-            selectedPortionId: selectedPortionId
-        )
+
+        // If label starts with a number (e.g., "8 fl oz"), scale it by quantity
+        // so "0.5 × 8 fl oz" displays as "4 fl oz"
+        if let firstChar = servingLabel.first, firstChar.isNumber,
+           let spaceIdx = servingLabel.firstIndex(of: " "),
+           let labelAmount = Double(servingLabel[servingLabel.startIndex..<spaceIdx]) {
+            let scaled = labelAmount * quantity
+            let unitPart = String(servingLabel[servingLabel.index(after: spaceIdx)...])
+            let scaledText = scaled.truncatingRemainder(dividingBy: 1) == 0
+                ? String(Int(scaled))
+                : String(format: "%.4g", scaled)
+            return "\(scaledText) \(unitPart)"
+        }
+
+        let q = quantity.truncatingRemainder(dividingBy: 1) == 0
+            ? String(Int(quantity))
+            : String(format: "%.2g", quantity)
+        return "\(q) \(servingLabel)"
     }
 }
 
-enum MealType: String, Codable, CaseIterable, Identifiable {
-    case breakfast = "Breakfast"
-    case lunch = "Lunch"
-    case dinner = "Dinner"
-    case snack = "Snack"
-    
-    var id: String { rawValue }
-    
-    var icon: String {
-        switch self {
-        case .breakfast: return "sunrise.fill"
-        case .lunch: return "sun.max.fill"
-        case .dinner: return "moon.stars.fill"
-        case .snack: return "leaf.fill"
-        }
+// MARK: - FoodLog Factory
+
+extension FoodLog {
+    /// Creates a FoodLog and freezes nutrition at creation time.
+    /// This is the ONLY way a FoodLog should be created.
+    static func create(
+        mealType: MealType,
+        quantity: Double,
+        food: FoodItem,
+        serving: ServingSize?,
+        timestamp: Date = Date()
+    ) -> FoodLog {
+        let nutrition = NutritionCalculator.calculate(
+            food: food,
+            serving: serving,
+            quantity: quantity
+        )
+
+        return FoodLog(
+            timestamp: timestamp,
+            mealType: mealType,
+            quantity: quantity,
+            foodItem: food,
+            servingSize: serving,
+            caloriesAtLogTime: nutrition.calories,
+            proteinAtLogTime: nutrition.protein,
+            carbsAtLogTime: nutrition.carbs,
+            fatAtLogTime: nutrition.fat,
+            fiberAtLogTime: nutrition.fiber,
+            sodiumAtLogTime: nutrition.sodium,
+            sugarAtLogTime: nutrition.sugar,
+            saturatedFatAtLogTime: nutrition.saturatedFat,
+            transFatAtLogTime: nutrition.transFat,
+            monounsaturatedFatAtLogTime: nutrition.monounsaturatedFat,
+            polyunsaturatedFatAtLogTime: nutrition.polyunsaturatedFat,
+            cholesterolAtLogTime: nutrition.cholesterol,
+            potassiumAtLogTime: nutrition.potassium,
+            calciumAtLogTime: nutrition.calcium,
+            ironAtLogTime: nutrition.iron,
+            magnesiumAtLogTime: nutrition.magnesium,
+            zincAtLogTime: nutrition.zinc,
+            vitaminAAtLogTime: nutrition.vitaminA,
+            vitaminCAtLogTime: nutrition.vitaminC,
+            vitaminDAtLogTime: nutrition.vitaminD,
+            vitaminEAtLogTime: nutrition.vitaminE,
+            vitaminKAtLogTime: nutrition.vitaminK,
+            vitaminB6AtLogTime: nutrition.vitaminB6,
+            vitaminB12AtLogTime: nutrition.vitaminB12,
+            folateAtLogTime: nutrition.folate,
+            cholineAtLogTime: nutrition.choline,
+            caffeineAtLogTime: nutrition.caffeine
+        )
     }
 }

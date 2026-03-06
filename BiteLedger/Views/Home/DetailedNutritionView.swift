@@ -18,19 +18,19 @@ struct DetailedNutritionView: View {
     // MARK: - Totals
     
     private var totalCalories: Double {
-        logs.reduce(0) { $0 + $1.calories }
+        logs.reduce(0) { $0 + $1.caloriesAtLogTime }
     }
     
     private var totalProtein: Double {
-        logs.reduce(0) { $0 + $1.protein }
+        logs.reduce(0) { $0 + $1.proteinAtLogTime }
     }
     
     private var totalCarbs: Double {
-        logs.reduce(0) { $0 + $1.carbs }
+        logs.reduce(0) { $0 + $1.carbsAtLogTime }
     }
     
     private var totalFat: Double {
-        logs.reduce(0) { $0 + $1.fat }
+        logs.reduce(0) { $0 + $1.fatAtLogTime }
     }
     
     // MARK: - Macro Calories
@@ -57,13 +57,9 @@ struct DetailedNutritionView: View {
     
     // MARK: - Micronutrient Helper
     
-    private func sum(_ keyPath: KeyPath<FoodItem, Double?>) -> Double {
-        logs.compactMap { log in
-            guard let item = log.foodItem else { return nil }
-            let multiplier = log.totalGrams / 100.0
-            return (item[keyPath: keyPath] ?? 0) * multiplier
-        }
-        .reduce(0, +)
+    // Sum from FoodLog cached values (for vitamins/minerals already in mg/mcg)
+    private func sumFromLog(_ keyPath: KeyPath<FoodLog, Double?>) -> Double {
+        logs.compactMap { $0[keyPath: keyPath] }.reduce(0, +)
     }
     
     // MARK: - FDA Daily Values (based on 2000 calorie diet)
@@ -333,52 +329,54 @@ private extension DetailedNutritionView {
             thinDivider()
             
             // Saturated Fat (indented)
-            if sum(\.saturatedFatPer100g) > 0 {
-                indentedNutrientRow("Saturated Fat", sum(\.saturatedFatPer100g), "g")
+            if sumFromLog(\.saturatedFatAtLogTime) > 0 {
+                indentedNutrientRow("Saturated Fat", sumFromLog(\.saturatedFatAtLogTime), "g")
                 thinDivider()
             }
-            
+
             // Trans Fat (indented)
-            if sum(\.transFatPer100g) > 0 {
-                indentedNutrientRow("Trans Fat", sum(\.transFatPer100g), "g")
+            if sumFromLog(\.transFatAtLogTime) > 0 {
+                indentedNutrientRow("Trans Fat", sumFromLog(\.transFatAtLogTime), "g")
                 thinDivider()
             }
-            
+
             // Monounsaturated Fat (indented)
-            if sum(\.monounsaturatedFatPer100g) > 0 {
-                indentedNutrientRow("Monounsaturated Fat", sum(\.monounsaturatedFatPer100g), "g")
+            if sumFromLog(\.monounsaturatedFatAtLogTime) > 0 {
+                indentedNutrientRow("Monounsaturated Fat", sumFromLog(\.monounsaturatedFatAtLogTime), "g")
                 thinDivider()
             }
-            
+
             // Polyunsaturated Fat (indented)
-            if sum(\.polyunsaturatedFatPer100g) > 0 {
-                indentedNutrientRow("Polyunsaturated Fat", sum(\.polyunsaturatedFatPer100g), "g")
+            if sumFromLog(\.polyunsaturatedFatAtLogTime) > 0 {
+                indentedNutrientRow("Polyunsaturated Fat", sumFromLog(\.polyunsaturatedFatAtLogTime), "g")
                 thinDivider()
             }
-            
+
             // Cholesterol
-            if sum(\.cholesterolPer100g) > 0 {
-                nutrientRow("Cholesterol", sum(\.cholesterolPer100g) * 1000, "mg", bold: true)
+            if sumFromLog(\.cholesterolAtLogTime) > 0 {
+                nutrientRow("Cholesterol", sumFromLog(\.cholesterolAtLogTime), "mg", bold: true)
                 thinDivider()
             }
-            
+
             // Sodium
-            nutrientRow("Sodium", sum(\.sodiumPer100g) * 1000, "mg", bold: true)
-            thinDivider()
-            
+            if sumFromLog(\.sodiumAtLogTime) > 0 {
+                nutrientRow("Sodium", sumFromLog(\.sodiumAtLogTime), "mg", bold: true)
+                thinDivider()
+            }
+
             // Total Carbohydrate
             nutrientRow("Total Carbohydrate", totalCarbs, "g", bold: true)
             thinDivider()
-            
+
             // Fiber (indented)
-            if sum(\.fiberPer100g) > 0 {
-                indentedNutrientRow("Dietary Fiber", sum(\.fiberPer100g), "g")
+            if sumFromLog(\.fiberAtLogTime) > 0 {
+                indentedNutrientRow("Dietary Fiber", sumFromLog(\.fiberAtLogTime), "g")
                 thinDivider()
             }
-            
+
             // Sugar (indented)
-            if sum(\.sugarPer100g) > 0 {
-                indentedNutrientRow("Total Sugars", sum(\.sugarPer100g), "g")
+            if sumFromLog(\.sugarAtLogTime) > 0 {
+                indentedNutrientRow("Total Sugars", sumFromLog(\.sugarAtLogTime), "g")
                 thinDivider()
             }
             
@@ -393,80 +391,81 @@ private extension DetailedNutritionView {
             
             // Vitamins and Minerals section
             VStack(spacing: 0) {
-                if sum(\.vitaminDPer100g) > 0 {
-                    nutrientRow("Vitamin D", sum(\.vitaminDPer100g) * 1_000_000, "mcg")
+                if sumFromLog(\.vitaminDAtLogTime) > 0 {
+                    nutrientRow("Vitamin D", sumFromLog(\.vitaminDAtLogTime), "mcg")
                     thinDivider()
                 }
-                
-                if sum(\.calciumPer100g) > 0 {
-                    nutrientRow("Calcium", sum(\.calciumPer100g) * 1000, "mg")
+
+                if sumFromLog(\.calciumAtLogTime) > 0 {
+                    nutrientRow("Calcium", sumFromLog(\.calciumAtLogTime), "mg")
                     thinDivider()
                 }
-                
-                if sum(\.ironPer100g) > 0 {
-                    nutrientRow("Iron", sum(\.ironPer100g) * 1000, "mg")
+
+                if sumFromLog(\.ironAtLogTime) > 0 {
+                    nutrientRow("Iron", sumFromLog(\.ironAtLogTime), "mg")
                     thinDivider()
                 }
-                
-                if sum(\.potassiumPer100g) > 0 {
-                    nutrientRow("Potassium", sum(\.potassiumPer100g) * 1000, "mg")
+
+                if sumFromLog(\.potassiumAtLogTime) > 0 {
+                    nutrientRow("Potassium", sumFromLog(\.potassiumAtLogTime), "mg")
                     thinDivider()
                 }
-                
-                if sum(\.vitaminAPer100g) > 0 {
-                    nutrientRow("Vitamin A", sum(\.vitaminAPer100g) * 1_000_000, "mcg")
+
+                if sumFromLog(\.vitaminAAtLogTime) > 0 {
+                    nutrientRow("Vitamin A", sumFromLog(\.vitaminAAtLogTime), "mcg")
                     thinDivider()
                 }
-                
-                if sum(\.vitaminCPer100g) > 0 {
-                    nutrientRow("Vitamin C", sum(\.vitaminCPer100g) * 1000, "mg")
+
+                if sumFromLog(\.vitaminCAtLogTime) > 0 {
+                    nutrientRow("Vitamin C", sumFromLog(\.vitaminCAtLogTime), "mg")
                     thinDivider()
                 }
-                
-                if sum(\.vitaminEPer100g) > 0 {
-                    nutrientRow("Vitamin E", sum(\.vitaminEPer100g) * 1000, "mg")
+
+                if sumFromLog(\.vitaminEAtLogTime) > 0 {
+                    nutrientRow("Vitamin E", sumFromLog(\.vitaminEAtLogTime), "mg")
                     thinDivider()
                 }
-                
-                if sum(\.vitaminKPer100g) > 0 {
-                    nutrientRow("Vitamin K", sum(\.vitaminKPer100g) * 1_000_000, "mcg")
+
+                if sumFromLog(\.vitaminKAtLogTime) > 0 {
+                    nutrientRow("Vitamin K", sumFromLog(\.vitaminKAtLogTime), "mcg")
                     thinDivider()
                 }
-                
-                if sum(\.vitaminB6Per100g) > 0 {
-                    nutrientRow("Vitamin B6", sum(\.vitaminB6Per100g) * 1000, "mg")
+
+                if sumFromLog(\.vitaminB6AtLogTime) > 0 {
+                    nutrientRow("Vitamin B6", sumFromLog(\.vitaminB6AtLogTime), "mg")
                     thinDivider()
                 }
-                
-                if sum(\.vitaminB12Per100g) > 0 {
-                    nutrientRow("Vitamin B12", sum(\.vitaminB12Per100g) * 1_000_000, "mcg")
+
+                if sumFromLog(\.vitaminB12AtLogTime) > 0 {
+                    nutrientRow("Vitamin B12", sumFromLog(\.vitaminB12AtLogTime), "mcg")
                     thinDivider()
                 }
-                
-                if sum(\.folatePer100g) > 0 {
-                    nutrientRow("Folate", sum(\.folatePer100g) * 1_000_000, "mcg")
+
+                if sumFromLog(\.folateAtLogTime) > 0 {
+                    nutrientRow("Folate", sumFromLog(\.folateAtLogTime), "mcg")
                     thinDivider()
                 }
-                
-                if sum(\.cholinePer100g) > 0 {
-                    nutrientRow("Choline", sum(\.cholinePer100g) * 1000, "mg")
+
+                if sumFromLog(\.cholineAtLogTime) > 0 {
+                    nutrientRow("Choline", sumFromLog(\.cholineAtLogTime), "mg")
                     thinDivider()
                 }
-                
-                if sum(\.magnesiumPer100g) > 0 {
-                    nutrientRow("Magnesium", sum(\.magnesiumPer100g) * 1000, "mg")
+
+                if sumFromLog(\.magnesiumAtLogTime) > 0 {
+                    nutrientRow("Magnesium", sumFromLog(\.magnesiumAtLogTime), "mg")
                     thinDivider()
                 }
-                
-                if sum(\.zincPer100g) > 0 {
-                    nutrientRow("Zinc", sum(\.zincPer100g) * 1000, "mg")
+
+                if sumFromLog(\.zincAtLogTime) > 0 {
+                    nutrientRow("Zinc", sumFromLog(\.zincAtLogTime), "mg")
                     thinDivider()
                 }
-                
-                if sum(\.caffeinePer100g) > 0 {
-                    nutrientRow("Caffeine", sum(\.caffeinePer100g) * 1000, "mg")
+
+                if sumFromLog(\.caffeineAtLogTime) > 0 {
+                    nutrientRow("Caffeine", sumFromLog(\.caffeineAtLogTime), "mg")
                     thinDivider()
                 }
+
             }
             
             // Remove last divider

@@ -47,7 +47,9 @@ struct ManualFoodEntryView: View {
     @State private var caffeine = ""
     @State private var monounsaturatedFat = ""
     @State private var polyunsaturatedFat = ""
-    
+
+    @State private var dvMode = DVMode()
+
     @State private var showingServingSizePicker = false
     @State private var showingAmountPicker = false
     @State private var showingScanner = false
@@ -271,43 +273,48 @@ struct ManualFoodEntryView: View {
                 
                 Section("Fats") {
                     ManualNutritionRow(label: "Total Fat", value: $totalFat, unit: "g")
-                    ManualNutritionRow(label: "  Saturated Fat", value: $saturatedFat, unit: "g", isIndented: true)
+                    DVNutrientRow(label: "Saturated Fat", value: $saturatedFat, unit: "g", dailyValue: 20, usePercent: $dvMode.saturatedFat, isIndented: true)
                     ManualNutritionRow(label: "  Trans Fat", value: $transFat, unit: "g", isIndented: true)
                     ManualNutritionRow(label: "  Monounsaturated Fat", value: $monounsaturatedFat, unit: "g", isIndented: true)
                     ManualNutritionRow(label: "  Polyunsaturated Fat", value: $polyunsaturatedFat, unit: "g", isIndented: true)
                 }
-                
+
                 Section("Other Nutrients") {
-                    ManualNutritionRow(label: "Cholesterol", value: $cholesterol, unit: "mg")
-                    ManualNutritionRow(label: "Sodium", value: $sodium, unit: "mg")
+                    DVNutrientRow(label: "Cholesterol", value: $cholesterol, unit: "mg", dailyValue: 300, usePercent: $dvMode.cholesterol)
+                    DVNutrientRow(label: "Sodium", value: $sodium, unit: "mg", dailyValue: 2300, usePercent: $dvMode.sodium)
                 }
-                
+
                 Section("Carbohydrates") {
                     ManualNutritionRow(label: "Total Carbohydrate", value: $totalCarbs, unit: "g")
-                    ManualNutritionRow(label: "  Dietary Fiber", value: $fiber, unit: "g", isIndented: true)
+                    DVNutrientRow(label: "Dietary Fiber", value: $fiber, unit: "g", dailyValue: 28, usePercent: $dvMode.fiber, isIndented: true)
                     ManualNutritionRow(label: "  Total Sugars", value: $sugar, unit: "g", isIndented: true)
                 }
-                
+
                 Section("Protein") {
                     ManualNutritionRow(label: "Protein", value: $protein, unit: "g")
                 }
-                
-                Section("Vitamins & Minerals (Optional)") {
-                    ManualNutritionRow(label: "Vitamin A", value: $vitaminA, unit: "μg")
-                    ManualNutritionRow(label: "Vitamin C", value: $vitaminC, unit: "mg")
-                    ManualNutritionRow(label: "Vitamin D", value: $vitaminD, unit: "μg")
-                    ManualNutritionRow(label: "Vitamin E", value: $vitaminE, unit: "mg")
-                    ManualNutritionRow(label: "Vitamin K", value: $vitaminK, unit: "μg")
-                    ManualNutritionRow(label: "Vitamin B6", value: $vitaminB6, unit: "mg")
-                    ManualNutritionRow(label: "Vitamin B12", value: $vitaminB12, unit: "μg")
-                    ManualNutritionRow(label: "Folate", value: $folate, unit: "μg")
-                    ManualNutritionRow(label: "Choline", value: $choline, unit: "mg")
-                    ManualNutritionRow(label: "Calcium", value: $calcium, unit: "mg")
-                    ManualNutritionRow(label: "Iron", value: $iron, unit: "mg")
-                    ManualNutritionRow(label: "Potassium", value: $potassium, unit: "mg")
-                    ManualNutritionRow(label: "Magnesium", value: $magnesium, unit: "mg")
-                    ManualNutritionRow(label: "Zinc", value: $zinc, unit: "mg")
+
+                Section {
+                    DVNutrientRow(label: "Vitamin A",   value: $vitaminA,   unit: "mcg", dailyValue: 900,  usePercent: $dvMode.vitaminA)
+                    DVNutrientRow(label: "Vitamin C",   value: $vitaminC,   unit: "mg", dailyValue: 90,   usePercent: $dvMode.vitaminC)
+                    DVNutrientRow(label: "Vitamin D",   value: $vitaminD,   unit: "mcg", dailyValue: 20,   usePercent: $dvMode.vitaminD)
+                    DVNutrientRow(label: "Vitamin E",   value: $vitaminE,   unit: "mg", dailyValue: 15,   usePercent: $dvMode.vitaminE)
+                    DVNutrientRow(label: "Vitamin K",   value: $vitaminK,   unit: "mcg", dailyValue: 120,  usePercent: $dvMode.vitaminK)
+                    DVNutrientRow(label: "Vitamin B6",  value: $vitaminB6,  unit: "mg", dailyValue: 1.7,  usePercent: $dvMode.vitaminB6)
+                    DVNutrientRow(label: "Vitamin B12", value: $vitaminB12, unit: "mcg", dailyValue: 2.4,  usePercent: $dvMode.vitaminB12)
+                    DVNutrientRow(label: "Folate",      value: $folate,     unit: "mcg", dailyValue: 400,  usePercent: $dvMode.folate)
+                    DVNutrientRow(label: "Choline",     value: $choline,    unit: "mg", dailyValue: 550,  usePercent: $dvMode.choline)
+                    DVNutrientRow(label: "Calcium",     value: $calcium,    unit: "mg", dailyValue: 1300, usePercent: $dvMode.calcium)
+                    DVNutrientRow(label: "Iron",        value: $iron,       unit: "mg", dailyValue: 18,   usePercent: $dvMode.iron)
+                    DVNutrientRow(label: "Potassium",   value: $potassium,  unit: "mg", dailyValue: 4700, usePercent: $dvMode.potassium)
+                    DVNutrientRow(label: "Magnesium",   value: $magnesium,  unit: "mg", dailyValue: 420,  usePercent: $dvMode.magnesium)
+                    DVNutrientRow(label: "Zinc",        value: $zinc,       unit: "mg", dailyValue: 11,   usePercent: $dvMode.zinc)
                     ManualNutritionRow(label: "Caffeine", value: $caffeine, unit: "mg")
+                } header: {
+                    Text("Vitamins & Minerals (Optional)")
+                } footer: {
+                    Text("Tap the unit (mg, mcg, g) to switch between absolute amount and % Daily Value.")
+                        .font(.caption)
                 }
             }
             .navigationTitle("New Food")
@@ -438,6 +445,11 @@ struct ManualFoodEntryView: View {
         }
     }
     
+    private func parseDV(_ str: String, dv: Double, usePercent: Bool) -> Double? {
+        guard !str.isEmpty, let val = Double(str) else { return nil }
+        return usePercent ? val / 100.0 * dv : val
+    }
+
     private func addManualFood() {
         guard let caloriesVal = Double(calories) else { return }
         
@@ -448,83 +460,111 @@ struct ManualFoodEntryView: View {
         
         // Get the actual grams per serving if provided, otherwise estimate as 1g
         let actualGramsPerServing = Double(servingWeight) ?? 1.0
-        
-        // Calculate the divisor to convert from per-serving to per-100g
-        let per100gDivisor = actualGramsPerServing / 100.0
-        
-        // Helper to convert mg to g for storage
-        let mgToG: (String) -> Double? = { str in
+
+        // Helper to parse optional nutrient values
+        // Values are stored in their natural units (mg or mcg), no conversion needed
+        let parseOptional: (String) -> Double? = { str in
             guard !str.isEmpty, let val = Double(str) else { return nil }
-            return val / 1000.0
+            return val
         }
-        
-        let ugToG: (String) -> Double? = { str in
-            guard !str.isEmpty, let val = Double(str) else { return nil }
-            return val / 1_000_000.0
-        }
-        
-        // Convert all per-serving values to per-100g for internal storage
+
+        // Store nutrition values per serving (as entered)
         let foodItem = FoodItem(
             name: foodName,
             brand: brand.isEmpty ? nil : brand,
-            caloriesPer100g: caloriesVal / per100gDivisor,
-            proteinPer100g: proteinVal / per100gDivisor,
-            carbsPer100g: carbsVal / per100gDivisor,
-            fatPer100g: fatVal / per100gDivisor,
-            fiberPer100g: fiber.isEmpty ? nil : (Double(fiber)! / per100gDivisor),
-            sugarPer100g: sugar.isEmpty ? nil : (Double(sugar)! / per100gDivisor),
-            sodiumPer100g: mgToG(sodium).map { $0 / per100gDivisor },
-            saturatedFatPer100g: saturatedFat.isEmpty ? nil : (Double(saturatedFat)! / per100gDivisor),
-            transFatPer100g: transFat.isEmpty ? nil : (Double(transFat)! / per100gDivisor),
-            monounsaturatedFatPer100g: monounsaturatedFat.isEmpty ? nil : (Double(monounsaturatedFat)! / per100gDivisor),
-            polyunsaturatedFatPer100g: polyunsaturatedFat.isEmpty ? nil : (Double(polyunsaturatedFat)! / per100gDivisor),
-            cholesterolPer100g: mgToG(cholesterol).map { $0 / per100gDivisor },
-            magnesiumPer100g: mgToG(magnesium).map { $0 / per100gDivisor },
-            zincPer100g: mgToG(zinc).map { $0 / per100gDivisor },
-            vitaminAPer100g: ugToG(vitaminA).map { $0 / per100gDivisor },
-            vitaminCPer100g: mgToG(vitaminC).map { $0 / per100gDivisor },
-            vitaminDPer100g: ugToG(vitaminD).map { $0 / per100gDivisor },
-            vitaminEPer100g: mgToG(vitaminE).map { $0 / per100gDivisor },
-            vitaminKPer100g: ugToG(vitaminK).map { $0 / per100gDivisor },
-            vitaminB6Per100g: mgToG(vitaminB6).map { $0 / per100gDivisor },
-            vitaminB12Per100g: ugToG(vitaminB12).map { $0 / per100gDivisor },
-            folatePer100g: ugToG(folate).map { $0 / per100gDivisor },
-            cholinePer100g: mgToG(choline).map { $0 / per100gDivisor },
-            calciumPer100g: mgToG(calcium).map { $0 / per100gDivisor },
-            ironPer100g: mgToG(iron).map { $0 / per100gDivisor },
-            potassiumPer100g: mgToG(potassium).map { $0 / per100gDivisor },
-            caffeinePer100g: mgToG(caffeine).map { $0 / per100gDivisor },
-            servingDescription: servingDescription,
-            gramsPerServing: actualGramsPerServing,
-            servingSizeIsEstimated: servingWeight.isEmpty,
-            source: "Manual"
+            source: "Manual",
+            nutritionMode: .perServing,
+            calories: caloriesVal,
+            protein: proteinVal,
+            carbs: carbsVal,
+            fat: fatVal,
+            fiber: parseDV(fiber, dv: 28, usePercent: dvMode.fiber),
+            sugar: sugar.isEmpty ? nil : Double(sugar)!,
+            saturatedFat: parseDV(saturatedFat, dv: 20, usePercent: dvMode.saturatedFat),
+            transFat: transFat.isEmpty ? nil : Double(transFat)!,
+            polyunsaturatedFat: polyunsaturatedFat.isEmpty ? nil : Double(polyunsaturatedFat)!,
+            monounsaturatedFat: monounsaturatedFat.isEmpty ? nil : Double(monounsaturatedFat)!,
+            sodium: parseDV(sodium, dv: 2300, usePercent: dvMode.sodium),
+            cholesterol: parseDV(cholesterol, dv: 300, usePercent: dvMode.cholesterol),
+            potassium: parseDV(potassium, dv: 4700, usePercent: dvMode.potassium),
+            calcium: parseDV(calcium, dv: 1300, usePercent: dvMode.calcium),
+            iron: parseDV(iron, dv: 18, usePercent: dvMode.iron),
+            magnesium: parseDV(magnesium, dv: 420, usePercent: dvMode.magnesium),
+            zinc: parseDV(zinc, dv: 11, usePercent: dvMode.zinc),
+            vitaminA: parseDV(vitaminA, dv: 900, usePercent: dvMode.vitaminA),
+            vitaminC: parseDV(vitaminC, dv: 90, usePercent: dvMode.vitaminC),
+            vitaminD: parseDV(vitaminD, dv: 20, usePercent: dvMode.vitaminD),
+            vitaminE: parseDV(vitaminE, dv: 15, usePercent: dvMode.vitaminE),
+            vitaminK: parseDV(vitaminK, dv: 120, usePercent: dvMode.vitaminK),
+            vitaminB6: parseDV(vitaminB6, dv: 1.7, usePercent: dvMode.vitaminB6),
+            vitaminB12: parseDV(vitaminB12, dv: 2.4, usePercent: dvMode.vitaminB12),
+            folate: parseDV(folate, dv: 400, usePercent: dvMode.folate),
+            choline: parseDV(choline, dv: 550, usePercent: dvMode.choline),
+            caffeine: parseOptional(caffeine)
         )
         
-        // Add portions if any were defined
+        // Create default base serving
+        let baseServing = ServingSize(
+            label: servingDescription,
+            gramWeight: servingWeight.isEmpty ? nil : actualGramsPerServing,
+            isDefault: true,
+            sortOrder: 0
+        )
+        baseServing.foodItem = foodItem
+        
+        // Note: servingSizes will be created when foodItem is inserted by the callback handler
+        // We'll pass them along in a temporary array for now
+        var additionalServings: [ServingSize] = [baseServing]
+        
+        // Add 100g serving if we have gram weight
+        if !servingWeight.isEmpty {
+            let hundredGramServing = ServingSize(
+                label: "100g",
+                gramWeight: 100.0,
+                isDefault: false,
+                sortOrder: 1
+            )
+            hundredGramServing.foodItem = foodItem
+            additionalServings.append(hundredGramServing)
+        }
+        
+        // Add additional portion sizes if any were defined
         if !portions.isEmpty {
-            foodItem.portions = portions.map { portion in
-                StoredPortion(
-                    id: portion.id,
-                    amount: 1.0,
-                    modifier: portion.name,
-                    gramWeight: portion.grams
+            for (index, portion) in portions.enumerated() {
+                let servingSize = ServingSize(
+                    label: portion.name,
+                    gramWeight: portion.grams,
+                    isDefault: false,
+                    sortOrder: additionalServings.count + index
                 )
+                servingSize.foodItem = foodItem
+                additionalServings.append(servingSize)
             }
         }
         
         let amount = Double(amountToAdd) ?? 1.0
-        let totalGrams = amount * actualGramsPerServing
         
         let addedItem = AddedFoodItem(
             foodItem: foodItem,
-            servings: amount,
-            totalGrams: totalGrams,
-            selectedPortionId: nil  // Manual entries don't have USDA portions
+            servingSize: baseServing,
+            quantity: amount
         )
         
         onAdd(addedItem)
         dismiss()
     }
+}
+
+// MARK: - Supporting Types
+
+private struct DVMode {
+    var vitaminA = false;  var vitaminC = false;  var vitaminD = false
+    var vitaminE = false;  var vitaminK = false;  var vitaminB6 = false
+    var vitaminB12 = false; var folate = false;   var choline = false
+    var calcium = false;   var iron = false;      var potassium = false
+    var magnesium = false; var zinc = false
+    var cholesterol = false; var sodium = false
+    var saturatedFat = false; var fiber = false
 }
 
 // MARK: - Supporting Views
@@ -557,6 +597,49 @@ struct ManualNutritionRow: View {
                     .frame(width: 40, alignment: .leading)
             }
         }
+    }
+}
+
+struct DVNutrientRow: View {
+    let label: String
+    @Binding var value: String
+    let unit: String
+    let dailyValue: Double
+    @Binding var usePercent: Bool
+    var isIndented: Bool = false
+
+    var body: some View {
+        HStack {
+            if isIndented {
+                Text(label).font(.subheadline)
+            } else {
+                Text(label)
+            }
+            Spacer()
+            TextField("0", text: $value)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 80)
+            Button { toggleUnit() } label: {
+                Text(usePercent ? "%" : unit)
+                    .foregroundStyle(usePercent ? Color.accentColor : .secondary)
+                    .fontWeight(usePercent ? .semibold : .regular)
+                    .frame(width: 40, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func toggleUnit() {
+        if let num = Double(value), num > 0 {
+            let converted = usePercent
+                ? num / 100.0 * dailyValue   // % → absolute
+                : num / dailyValue * 100      // absolute → %
+            value = converted.truncatingRemainder(dividingBy: 1) == 0
+                ? String(format: "%.0f", converted)
+                : String(format: "%.1f", converted)
+        }
+        usePercent.toggle()
     }
 }
 

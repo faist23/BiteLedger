@@ -7,13 +7,60 @@
 
 import SwiftUI
 import SwiftData
+import CoreData
 
 @main
 struct BiteLedgerApp: App {
+    var sharedModelContainer: ModelContainer = {
+        let schema = Schema([
+            FoodItem.self,
+            FoodLog.self,
+            ServingSize.self,
+            UserPreferences.self,
+        ])
+        
+        // Try to create the container, and if it fails due to schema mismatch, delete and recreate
+        do {
+            let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+            return container
+        } catch {
+            print("⚠️ Failed to load existing database (likely schema mismatch): \(error)")
+            print("🔄 Deleting old database and creating fresh one...")
+            
+            // Delete the old database file
+            let fileManager = FileManager.default
+            if let storeURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("default.store") {
+                try? fileManager.removeItem(at: storeURL)
+                try? fileManager.removeItem(at: storeURL.appendingPathExtension("shm"))
+                try? fileManager.removeItem(at: storeURL.appendingPathExtension("wal"))
+                print("✅ Deleted old database files")
+            }
+            
+            // Create fresh container with new schema
+            do {
+                let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+                let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+                print("✅ Created fresh database with new schema")
+                return container
+            } catch {
+                fatalError("Could not create ModelContainer even after cleanup: \(error)")
+            }
+        }
+    }()
+    
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            SafeContentView(modelContainer: sharedModelContainer)
         }
-        .modelContainer(for: [FoodItem.self, FoodLog.self, UserPreferences.self])
+        .modelContainer(sharedModelContainer)
+    }
+}
+
+struct SafeContentView: View {
+    let modelContainer: ModelContainer
+    
+    var body: some View {
+        ContentView()
     }
 }

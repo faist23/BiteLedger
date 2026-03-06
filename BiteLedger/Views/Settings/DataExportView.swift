@@ -13,7 +13,9 @@ struct DataExportView: View {
     @Environment(\.modelContext) private var modelContext
     
     @Query(sort: \FoodLog.timestamp, order: .reverse) private var allLogs: [FoodLog]
+    @Query(sort: \FoodItem.name) private var allFoods: [FoodItem]
     
+    @State private var exportType: ExportType = .logsOnly
     @State private var exportRange: ExportRange = .all
     @State private var startDate = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
     @State private var endDate = Date()
@@ -22,6 +24,13 @@ struct DataExportView: View {
     @State private var showingShareSheet = false
     @State private var errorMessage: String?
     @State private var showingError = false
+    
+    enum ExportType: String, CaseIterable, Identifiable {
+        case logsOnly = "Food Logs Only (CSV)"
+        case complete = "Complete Database (ZIP with 3 CSVs)"
+        
+        var id: String { rawValue }
+    }
     
     enum ExportRange: String, CaseIterable, Identifiable {
         case all = "All Data"
@@ -47,7 +56,7 @@ struct DataExportView: View {
                         .font(.title)
                         .fontWeight(.bold)
                     
-                    Text("Export your food logs as a CSV file")
+                    Text(exportType == .complete ? "Export complete database with foods and portions" : "Export your food logs as a CSV file")
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -56,12 +65,12 @@ struct DataExportView: View {
                 
                 // Export options
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Select Date Range:")
+                    Text("Export Type:")
                         .font(.headline)
                     
-                    Picker("Range", selection: $exportRange) {
-                        ForEach(ExportRange.allCases) { range in
-                            Text(range.rawValue).tag(range)
+                    Picker("Type", selection: $exportType) {
+                        ForEach(ExportType.allCases) { type in
+                            Text(type.rawValue).tag(type)
                         }
                     }
                     .pickerStyle(.menu)
@@ -70,7 +79,23 @@ struct DataExportView: View {
                     .background(Color(.systemGray6))
                     .cornerRadius(10)
                     
-                    if exportRange == .custom {
+                    if exportType == .logsOnly {
+                        Text("Select Date Range:")
+                            .font(.headline)
+                        
+                        Picker("Range", selection: $exportRange) {
+                            ForEach(ExportRange.allCases) { range in
+                                Text(range.rawValue).tag(range)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(10)
+                    }
+                    
+                    if exportType == .logsOnly && exportRange == .custom {
                         VStack(spacing: 12) {
                             DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
                             DatePicker("End Date", selection: $endDate, displayedComponents: .date)
@@ -84,9 +109,15 @@ struct DataExportView: View {
                     HStack {
                         Image(systemName: "doc.text.fill")
                             .foregroundStyle(.orange)
-                        Text("\(filteredLogsCount) entries will be exported")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                        if exportType == .complete {
+                            Text("\(allLogs.count) log entries, \(allFoods.count) foods, \(totalPortions) portions")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("\(filteredLogsCount) entries will be exported")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .padding()
@@ -105,9 +136,9 @@ struct DataExportView: View {
                             ProgressView()
                                 .tint(.white)
                         } else {
-                            Image(systemName: "arrow.down.doc.fill")
+                            Image(systemName: exportType == .complete ? "arrow.down.doc.fill" : "arrow.down.doc.fill")
                         }
-                        Text(isExporting ? "Exporting..." : "Export to CSV")
+                        Text(isExporting ? "Exporting..." : (exportType == .complete ? "Export Complete Database" : "Export to CSV"))
                             .fontWeight(.semibold)
                     }
                     .frame(maxWidth: .infinity)
@@ -116,7 +147,7 @@ struct DataExportView: View {
                     .foregroundStyle(.white)
                     .cornerRadius(12)
                 }
-                .disabled(isExporting || filteredLogsCount == 0)
+                .disabled(isExporting || (exportType == .logsOnly && filteredLogsCount == 0))
                 .padding(.horizontal)
                 .padding(.bottom, 40)
             }
@@ -148,6 +179,10 @@ struct DataExportView: View {
         getFilteredLogs().count
     }
     
+    private var totalPortions: Int {
+        allFoods.reduce(0) { $0 + $1.servingSizes.count }
+    }
+    
     private func getFilteredLogs() -> [FoodLog] {
         let calendar = Calendar.current
         let now = Date()
@@ -177,8 +212,38 @@ struct DataExportView: View {
         
         Task {
             do {
-                let logs = getFilteredLogs()
-                let fileURL = try DataExporter.exportToCSV(logs: logs)
+                let fileURL: URL
+                
+                if exportType == .complete {
+                    // Export complete database using exportAll
+                    let package = try await MainActor.run {
+                        try CSVExporter.exportAll(context: modelContext)
+                    }
+                    
+                    // Create temporary directory for export files
+                    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+                    
+                    // Write all three CSV files
+                    let foodsURL = tempDir.appendingPathComponent("FoodItems.csv")
+                    let servingsURL = tempDir.appendingPathComponent("ServingSizes.csv")
+                    let logsURL = tempDir.appendingPathComponent("FoodLogs.csv")
+                    
+                    try package.foodsCSV.write(to: foodsURL, atomically: true, encoding: .utf8)
+                    try package.servingsCSV.write(to: servingsURL, atomically: true, encoding: .utf8)
+                    try package.logsCSV.write(to: logsURL, atomically: true, encoding: .utf8)
+                    
+                    fileURL = foodsURL  // Share the first file (user can access folder)
+                } else {
+                    // Export just the filtered logs
+                    let logs = getFilteredLogs()
+                    let csvString = CSVExporter.exportLogs(logs)
+                    
+                    // Write to temporary file
+                    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("FoodLogs_\(Date().timeIntervalSince1970).csv")
+                    try csvString.write(to: tempURL, atomically: true, encoding: .utf8)
+                    fileURL = tempURL
+                }
                 
                 await MainActor.run {
                     exportedFileURL = fileURL
