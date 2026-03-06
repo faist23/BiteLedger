@@ -119,7 +119,7 @@ struct MyFoodsManagementView: View {
                                         }
 
                                         if let lastDate = food.foodLogs.max(by: { $0.timestamp < $1.timestamp })?.timestamp {
-                                            Text("Last used \(lastUsedText(for: lastDate))")
+                                            Text("Last used \(lastDate.lastUsedDisplay)")
                                                 .font(.caption2)
                                                 .foregroundStyle(.secondary)
                                         }
@@ -190,17 +190,6 @@ struct MyFoodsManagementView: View {
         }
     }
     
-    private func lastUsedText(for date: Date) -> String {
-        let calendar = Calendar.current
-        let now = Date()
-        if calendar.isDateInToday(date) { return "today" }
-        if calendar.isDateInYesterday(date) { return "yesterday" }
-        let days = calendar.dateComponents([.day], from: date, to: now).day ?? 0
-        if days < 7 { return "\(days)d ago" }
-        if days < 30 { return "\(days / 7)w ago" }
-        if days < 365 { return "\(days / 30)mo ago" }
-        return "\(days / 365)y ago"
-    }
 
     private func deleteFood(_ food: FoodItem) {
         modelContext.delete(food)

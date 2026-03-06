@@ -558,11 +558,20 @@ struct FoodSearchView: View {
             return "\(dateKey)-\(log.mealType.rawValue)"
         }
 
+        // Meal sort priority: snack=0, dinner=1, lunch=2, breakfast=3
+        // Combined with date descending, this puts the last meal of the day at the top of each group.
+        let mealPriority: [MealType: Int] = [.snack: 0, .dinner: 1, .lunch: 2, .breakfast: 3]
+
         let sorted = grouped.map { (_, logs) -> (date: Date, mealType: MealType, logs: [FoodLog]) in
             let firstLog = logs.first!
             return (firstLog.timestamp, firstLog.mealType, logs.sorted { $0.timestamp < $1.timestamp })
         }
-        .sorted { $0.date > $1.date }
+        .sorted { a, b in
+            let aDay = calendar.startOfDay(for: a.date)
+            let bDay = calendar.startOfDay(for: b.date)
+            if aDay != bDay { return aDay > bDay }
+            return (mealPriority[a.mealType] ?? 99) < (mealPriority[b.mealType] ?? 99)
+        }
 
         let filtered = searchText.isEmpty ? sorted : sorted.filter { meal in
             meal.logs.contains { $0.foodItem?.name.localizedCaseInsensitiveContains(searchText) ?? false }
@@ -593,7 +602,7 @@ struct FoodSearchView: View {
                                             .font(.subheadline)
                                             .fontWeight(.semibold)
                                         
-                                        Text(meal.date.formatted(date: .abbreviated, time: .omitted))
+                                        Text(meal.date.lastUsedDisplay)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
@@ -1249,7 +1258,7 @@ struct ProductQuickRow: View {
                             Text("•")
                                 .foregroundStyle(Color("TextSecondary"))
                                 .font(.caption)
-                            Text(lastUsedText(for: lastUsed))
+                            Text(lastUsed.lastUsedDisplay)
                                 .font(.caption)
                                 .foregroundStyle(Color("TextSecondary"))
                         }
@@ -1335,32 +1344,6 @@ struct ProductQuickRow: View {
         }
     }
     
-    // MARK: - Helper
-    
-    private func lastUsedText(for date: Date) -> String {
-        let calendar = Calendar.current
-        let now = Date()
-        
-        if calendar.isDateInToday(date) {
-            return "today"
-        } else if calendar.isDateInYesterday(date) {
-            return "yesterday"
-        } else {
-            let days = calendar.dateComponents([.day], from: date, to: now).day ?? 0
-            if days < 7 {
-                return "\(days)d ago"
-            } else if days < 30 {
-                let weeks = days / 7
-                return "\(weeks)w ago"
-            } else if days < 365 {
-                let months = days / 30
-                return "\(months)mo ago"
-            } else {
-                let years = days / 365
-                return "\(years)y ago"
-            }
-        }
-    }
 }
 
 struct MyFoodsListView: View {
@@ -1477,7 +1460,7 @@ struct FoodItemRow: View {
                         Text("•")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
-                        Text(lastUsedText(for: lastUsed))
+                        Text(lastUsed.lastUsedDisplay)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -1494,31 +1477,6 @@ struct FoodItemRow: View {
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
         .onTapGesture {
             onTap()
-        }
-    }
-    
-    private func lastUsedText(for date: Date) -> String {
-        let calendar = Calendar.current
-        let now = Date()
-        
-        if calendar.isDateInToday(date) {
-            return "today"
-        } else if calendar.isDateInYesterday(date) {
-            return "yesterday"
-        } else {
-            let days = calendar.dateComponents([.day], from: date, to: now).day ?? 0
-            if days < 7 {
-                return "\(days)d ago"
-            } else if days < 30 {
-                let weeks = days / 7
-                return "\(weeks)w ago"
-            } else if days < 365 {
-                let months = days / 30
-                return "\(months)mo ago"
-            } else {
-                let years = days / 365
-                return "\(years)y ago"
-            }
         }
     }
     
