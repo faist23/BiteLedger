@@ -19,7 +19,18 @@ struct HistoryView: View {
     @State private var oldestLogDate: Date?
     @State private var totalUniqueDaysAllTime = 0
     @State private var selectedTimeRange: TimeRange = .thirtyDays
-    
+    @AppStorage("historyExtraNutrients") private var extraNutrientKeys: String = ""
+
+    // MARK: - Persistence helpers
+
+    private var selectedExtraSet: Set<Nutrient> {
+        Set(extraNutrientKeys.split(separator: ",").compactMap { Nutrient(rawValue: String($0)) })
+    }
+
+    private func saveExtraSet(_ set: Set<Nutrient>) {
+        extraNutrientKeys = set.map { $0.rawValue }.sorted().joined(separator: ",")
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -32,24 +43,26 @@ struct HistoryView: View {
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    ScrollView {
-                        VStack(spacing: 24) {
-                            // Stats row
-                            statsRow
-                            
-                            // Goal Charts Section
-                            if !activeGoals.isEmpty {
-                                goalChartsSection
-                            }
-                            
-                            // Meal filter buttons
-                            mealFilterButtons
-                            
-                            // Most logged foods sections
-                            mostLoggedFoodsSection
+                    VStack(spacing: 0) {
+                        // Sticky trends header — stays visible while scrolling
+                        if !allLogs.isEmpty {
+                            trendsHeader
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
+
+                        ScrollView {
+                            VStack(spacing: 24) {
+                                statsRow
+
+                                if !allLogs.isEmpty {
+                                    goalChartsSection
+                                }
+
+                                mealFilterButtons
+                                mostLoggedFoodsSection
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.top, 20)
+                        }
                     }
                 }
             }
@@ -59,6 +72,84 @@ struct HistoryView: View {
                 loadRecentLogs()
             }
         }
+    }
+
+    // MARK: - Sticky Trends Header
+
+    private var trendsHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Trends")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundStyle(Color("TextPrimary"))
+
+                Spacer()
+
+                Picker("Range", selection: $selectedTimeRange) {
+                    ForEach(TimeRange.allCases, id: \.self) { range in
+                        Text(range.rawValue).tag(range)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 180)
+            }
+            .padding(.horizontal, 20)
+
+            if !extraNutrientsForPills.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        // "All" toggle
+                        let allOn = extraNutrientsForPills.allSatisfy { selectedExtraSet.contains($0) }
+                        Button {
+                            if allOn {
+                                var updated = selectedExtraSet
+                                extraNutrientsForPills.forEach { updated.remove($0) }
+                                saveExtraSet(updated)
+                            } else {
+                                var updated = selectedExtraSet
+                                extraNutrientsForPills.forEach { updated.insert($0) }
+                                saveExtraSet(updated)
+                            }
+                        } label: {
+                            Text("All")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(allOn ? Color("BrandPrimary") : Color("SurfacePrimary"))
+                                .foregroundStyle(allOn ? Color.white : Color("TextPrimary"))
+                                .cornerRadius(16)
+                                .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+                        }
+
+                        ForEach(extraNutrientsForPills, id: \.rawValue) { nutrient in
+                            let isOn = selectedExtraSet.contains(nutrient)
+                            Button {
+                                var updated = selectedExtraSet
+                                if isOn { updated.remove(nutrient) } else { updated.insert(nutrient) }
+                                saveExtraSet(updated)
+                            } label: {
+                                Text(nutrient.rawValue)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(isOn ? Color("BrandPrimary") : Color("SurfacePrimary"))
+                                    .foregroundStyle(isOn ? Color.white : Color("TextPrimary"))
+                                    .cornerRadius(16)
+                                    .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .padding(.vertical, 12)
+        .background(Color("SurfacePrimary"))
+        .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
     }
     
     private func loadRecentLogs() {
@@ -156,57 +247,51 @@ struct HistoryView: View {
         }
     }
     
-    // MARK: - Goal Charts Section
-    
+    // MARK: - Charts List
+
     private var goalChartsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Goal Progress")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundStyle(Color("TextPrimary"))
-                
-                Spacer()
-                
-                // Time range picker
-                Picker("Range", selection: $selectedTimeRange) {
-                    ForEach(TimeRange.allCases, id: \.self) { range in
-                        Text(range.rawValue).tag(range)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 180)
-            }
-            .padding(.horizontal, 4)
-            
+        VStack(spacing: 16) {
             ForEach(activeGoals, id: \.rawValue) { nutrient in
-                if let goal = userGoals[nutrient.rawValue] {
+                let data = dailyTotals(for: nutrient)
+                if data.contains(where: { $0.1 > 0 }) {
                     GoalChartCard(
                         nutrient: nutrient,
-                        goal: goal,
-                        dailyData: dailyTotals(for: nutrient),
+                        goal: userGoals[nutrient.rawValue],
+                        dailyData: data,
                         timeRange: selectedTimeRange
                     )
                 }
             }
         }
     }
-    
+
+    private static let nutritionLabelOrder: [Nutrient] = [
+        .calories,
+        .fat, .saturatedFat, .transFat, .polyunsaturatedFat, .monounsaturatedFat,
+        .cholesterol, .sodium,
+        .carbs, .fiber, .sugar,
+        .protein,
+        .vitaminD, .calcium, .iron, .potassium,
+        .magnesium, .zinc,
+        .vitaminA, .vitaminC, .vitaminE, .vitaminK,
+        .vitaminB6, .vitaminB12, .folate, .choline,
+        .caffeine
+    ]
+
     private var activeGoals: [Nutrient] {
-        guard let prefs = preferences.first else { return [] }
-        
-        // Dashboard order: Calories, Protein, Carbs, Fat, then pinned nutrient
-        let pinnedNutrient = prefs.pinnedNutrient.flatMap { Nutrient(rawValue: $0) }
-        let dashboardOrder: [Nutrient] = [.calories, .protein, .carbs, .fat, pinnedNutrient].compactMap { $0 }
-        
-        // Get all nutrients with goals
-        let withGoals = prefs.activeGoalNutrients
-        
-        // Charts appear in dashboard order, then others alphabetically
-        let ordered = dashboardOrder.filter { withGoals.contains($0) }
-        let remaining = withGoals.filter { !dashboardOrder.contains($0) }.sorted { $0.rawValue < $1.rawValue }
-        
-        return ordered + remaining
+        let pinnedNutrient = preferences.first?.pinnedNutrient.flatMap { Nutrient(rawValue: $0) }
+        let core = Set([Nutrient.calories, .protein, .carbs, .fat, pinnedNutrient].compactMap { $0 })
+        let withGoals = Set(preferences.first?.activeGoalNutrients ?? [])
+        let visible = core.union(withGoals).union(selectedExtraSet)
+        return Self.nutritionLabelOrder.filter { visible.contains($0) }
+    }
+
+    private var extraNutrientsForPills: [Nutrient] {
+        let pinnedNutrient = preferences.first?.pinnedNutrient.flatMap { Nutrient(rawValue: $0) }
+        let core = Set([Nutrient.calories, .protein, .carbs, .fat, pinnedNutrient].compactMap { $0 })
+        let withGoals = Set(preferences.first?.activeGoalNutrients ?? [])
+        let alwaysShown = core.union(withGoals)
+        return Self.nutritionLabelOrder.filter { !alwaysShown.contains($0) }
     }
     
     private var userGoals: [String: NutrientGoal] {
@@ -501,10 +586,10 @@ enum TimeRange: String, CaseIterable {
 
 struct GoalChartCard: View {
     let nutrient: Nutrient
-    let goal: NutrientGoal
+    let goal: NutrientGoal?
     let dailyData: [(Date, Double)]
     let timeRange: TimeRange
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Header
@@ -513,40 +598,43 @@ struct GoalChartCard: View {
                     Text(nutrient.rawValue)
                         .font(.headline)
                         .foregroundStyle(Color("TextPrimary"))
-                    
-                    Text(goalDescription)
-                        .font(.caption)
-                        .foregroundStyle(Color("TextSecondary"))
+
+                    if let goalDescription {
+                        Text(goalDescription)
+                            .font(.caption)
+                            .foregroundStyle(Color("TextSecondary"))
+                    }
                 }
-                
+
                 Spacer()
-                
+
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(averageValueFormatted)
                         .font(.title3)
                         .fontWeight(.bold)
                         .foregroundStyle(Color("TextPrimary"))
-                    
+
                     Text("avg \(nutrient.unit)/day")
                         .font(.caption2)
                         .foregroundStyle(Color("TextSecondary"))
                 }
             }
-            
-            // Rolling average success indicator
-            HStack(spacing: 8) {
-                Image(systemName: weeklyAverageOnTarget ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                    .foregroundStyle(weeklyAverageOnTarget ? .green : .orange)
-                    .font(.caption)
-                
-                Text(weeklyAverageStatusText)
-                    .font(.caption)
-                    .foregroundStyle(Color("TextSecondary"))
+
+            // Rolling average status — only when a goal is set
+            if let goal {
+                HStack(spacing: 8) {
+                    Image(systemName: weeklyAverageOnTarget(goal: goal) ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                        .foregroundStyle(weeklyAverageOnTarget(goal: goal) ? .green : .orange)
+                        .font(.caption)
+
+                    Text(weeklyAverageStatusText(goal: goal))
+                        .font(.caption)
+                        .foregroundStyle(Color("TextSecondary"))
+                }
             }
-            
+
             // Chart
             Chart {
-                // Daily values as area chart
                 ForEach(dailyData, id: \.0) { date, value in
                     AreaMark(
                         x: .value("Date", date),
@@ -561,8 +649,7 @@ struct GoalChartCard: View {
                     )
                     .interpolationMethod(.catmullRom)
                 }
-                
-                // 7-day rolling average line (bold and prominent)
+
                 ForEach(rollingAverageData, id: \.0) { date, avgValue in
                     LineMark(
                         x: .value("Date", date),
@@ -572,30 +659,30 @@ struct GoalChartCard: View {
                     .lineStyle(StrokeStyle(lineWidth: 3))
                     .interpolationMethod(.catmullRom)
                 }
-                
-                // Goal threshold line(s)
-                switch goal.goalType {
-                case .minimum, .maximum:
-                    RuleMark(y: .value("Goal", goal.targetValue))
-                        .foregroundStyle(.green.opacity(0.6))
-                        .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
-                case .range:
-                    let rangeMax = goal.rangeMax ?? (goal.targetValue * 1.1)
-                    
-                    // Min line
-                    RuleMark(y: .value("Min", goal.targetValue))
-                        .foregroundStyle(.green.opacity(0.6))
-                        .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
-                    
-                    // Max line
-                    RuleMark(y: .value("Max", rangeMax))
-                        .foregroundStyle(.orange.opacity(0.6))
-                        .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
+
+                if let goal {
+                    switch goal.goalType {
+                    case .minimum, .maximum:
+                        RuleMark(y: .value("Goal", goal.targetValue))
+                            .foregroundStyle(.green.opacity(0.6))
+                            .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
+                    case .range:
+                        RuleMark(y: .value("Min", goal.targetValue))
+                            .foregroundStyle(.green.opacity(0.6))
+                            .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
+                        RuleMark(y: .value("Max", goal.rangeMax ?? goal.targetValue * 1.1))
+                            .foregroundStyle(.orange.opacity(0.6))
+                            .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
+                    }
+                } else if let dv = fdaDailyValue {
+                    RuleMark(y: .value("FDA DV", dv))
+                        .foregroundStyle(.secondary.opacity(0.5))
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
                 }
             }
             .frame(height: 180)
             .chartXAxis {
-                AxisMarks(values: .stride(by: xAxisStride)) { value in
+                AxisMarks(values: .stride(by: .day, count: xAxisStrideDays)) { value in
                     if let date = value.as(Date.self) {
                         AxisValueLabel {
                             Text(date, format: .dateTime.month(.abbreviated).day())
@@ -614,7 +701,7 @@ struct GoalChartCard: View {
                     }
                 }
             }
-            
+
             // Legend
             HStack(spacing: 16) {
                 HStack(spacing: 4) {
@@ -625,7 +712,7 @@ struct GoalChartCard: View {
                         .font(.caption2)
                         .foregroundStyle(Color("TextSecondary"))
                 }
-                
+
                 HStack(spacing: 4) {
                     Rectangle()
                         .fill(Color("BrandPrimary"))
@@ -634,22 +721,22 @@ struct GoalChartCard: View {
                         .font(.caption2)
                         .foregroundStyle(Color("TextSecondary"))
                 }
-                
-                if goal.goalType == .range {
+
+                if let goal {
                     HStack(spacing: 4) {
                         Rectangle()
                             .fill(.green.opacity(0.6))
                             .frame(width: 16, height: 2)
-                        Text("Target Range")
+                        Text(goal.goalType == .range ? "Target Range" : "Goal")
                             .font(.caption2)
                             .foregroundStyle(Color("TextSecondary"))
                     }
-                } else {
+                } else if fdaDailyValue != nil {
                     HStack(spacing: 4) {
                         Rectangle()
-                            .fill(.green.opacity(0.6))
+                            .fill(Color.secondary.opacity(0.5))
                             .frame(width: 16, height: 2)
-                        Text("Goal")
+                        Text("FDA DV")
                             .font(.caption2)
                             .foregroundStyle(Color("TextSecondary"))
                     }
@@ -691,84 +778,91 @@ struct GoalChartCard: View {
         formatValue(overallAverage)
     }
     
-    private var weeklyAverageOnTarget: Bool {
-        guard !rollingAverageData.isEmpty else { return false }
-        
-        // Check the most recent 7-day average
-        let recentAverages = rollingAverageData.suffix(7)
-        guard let latestAverage = recentAverages.last?.1 else { return false }
-        
+    private func weeklyAverageOnTarget(goal: NutrientGoal) -> Bool {
+        guard let latestAverage = rollingAverageData.suffix(7).last?.1 else { return false }
         switch goal.goalType {
-        case .minimum:
-            return latestAverage >= goal.targetValue
-        case .maximum:
-            return latestAverage <= goal.targetValue
+        case .minimum: return latestAverage >= goal.targetValue
+        case .maximum: return latestAverage <= goal.targetValue
         case .range:
             let rangeMax = goal.rangeMax ?? goal.targetValue * 1.1
             return latestAverage >= goal.targetValue && latestAverage <= rangeMax
         }
     }
-    
-    private var weeklyAverageStatusText: String {
-        let recentWindow = min(7, dailyData.count)
-        
-        if weeklyAverageOnTarget {
+
+    private func weeklyAverageStatusText(goal: NutrientGoal) -> String {
+        if weeklyAverageOnTarget(goal: goal) {
             return "7-day rolling average on target"
-        } else {
+        }
+        switch goal.goalType {
+        case .minimum: return "7-day average below target"
+        case .maximum: return "7-day average above target"
+        case .range:
+            return overallAverage < goal.targetValue ? "7-day average below range" : "7-day average above range"
+        }
+    }
+
+    private var goalDescription: String? {
+        if let goal {
             switch goal.goalType {
-            case .minimum:
-                return "7-day average below target"
-            case .maximum:
-                return "7-day average above target"
+            case .minimum: return "Goal: at least \(formatValue(goal.targetValue)) \(nutrient.unit)"
+            case .maximum: return "Goal: under \(formatValue(goal.targetValue)) \(nutrient.unit)"
             case .range:
-                if overallAverage < goal.targetValue {
-                    return "7-day average below range"
-                } else {
-                    return "7-day average above range"
-                }
+                let max = goal.rangeMax ?? goal.targetValue * 1.1
+                return "Goal: \(formatValue(goal.targetValue))–\(formatValue(max)) \(nutrient.unit)"
             }
         }
-    }
-    
-    private var goalDescription: String {
-        switch goal.goalType {
-        case .minimum:
-            return "At least \(Int(goal.targetValue)) \(nutrient.unit)"
-        case .maximum:
-            return "Under \(Int(goal.targetValue)) \(nutrient.unit)"
-        case .range:
-            let max = goal.rangeMax ?? goal.targetValue * 1.1
-            return "\(Int(goal.targetValue))-\(Int(max)) \(nutrient.unit)"
+        if let dv = fdaDailyValue {
+            return "FDA DV: \(formatValue(dv)) \(nutrient.unit)"
         }
+        return nil
     }
     
     
-    private var xAxisStride: Calendar.Component {
+    private var xAxisStrideDays: Int {
         switch timeRange {
-        case .sevenDays:
-            return .day
-        case .thirtyDays:
-            return .weekOfYear
-        case .ninetyDays:
-            return .weekOfYear
+        case .sevenDays:  return 1
+        case .thirtyDays: return 7
+        case .ninetyDays: return 15
         }
     }
     
     private func formatValue(_ value: Double) -> String {
-        // For calories, always show full number (no "k" abbreviation)
-        if nutrient == .calories {
-            return "\(Int(value))"
-        }
-        
-        // For other nutrients, use compact format
-        if value >= 1000 {
-            return String(format: "%.1fk", value / 1000)
-        } else if value >= 100 {
-            return "\(Int(value))"
-        } else if value >= 10 {
+        if value >= 10 {
+            return "\(Int(value.rounded()))"
+        } else if value >= 1 {
             return String(format: "%.1f", value)
         } else {
             return String(format: "%.2f", value)
+        }
+    }
+
+    /// FDA daily values in the units BiteLedger uses for each nutrient.
+    private var fdaDailyValue: Double? {
+        switch nutrient {
+        case .calories:        return 2000
+        case .protein:         return 50
+        case .carbs:           return 275
+        case .fat:             return 78
+        case .fiber:           return 28
+        case .sugar:           return nil  // BiteLedger tracks total sugar; FDA DV is for added sugars only
+        case .saturatedFat:    return 20
+        case .cholesterol:     return 0.3   // 300 mg stored as g
+        case .sodium:          return 2300
+        case .potassium:       return 4700
+        case .calcium:         return 1300
+        case .iron:            return 18
+        case .magnesium:       return 420
+        case .zinc:            return 11
+        case .vitaminA:        return 900   // mcg RAE
+        case .vitaminC:        return 90
+        case .vitaminD:        return 20
+        case .vitaminE:        return 15
+        case .vitaminK:        return 120   // mcg
+        case .vitaminB6:       return 1.7
+        case .vitaminB12:      return 2.4   // mcg
+        case .folate:          return 400   // mcg DFE
+        case .choline:         return 550
+        default:               return nil
         }
     }
 }

@@ -20,14 +20,14 @@ struct DataExportView: View {
     @State private var startDate = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
     @State private var endDate = Date()
     @State private var isExporting = false
-    @State private var exportedFileURL: URL?
+    @State private var exportedFileURLs: [URL] = []
     @State private var showingShareSheet = false
     @State private var errorMessage: String?
     @State private var showingError = false
-    
+
     enum ExportType: String, CaseIterable, Identifiable {
         case logsOnly = "Food Logs Only (CSV)"
-        case complete = "Complete Database (ZIP with 3 CSVs)"
+        case complete = "Complete Database (3 CSV Files)"
         
         var id: String { rawValue }
     }
@@ -160,10 +160,8 @@ struct DataExportView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingShareSheet) {
-                if let url = exportedFileURL {
-                    ShareSheet(items: [url])
-                }
+            .sheet(isPresented: $showingShareSheet, onDismiss: { dismiss() }) {
+                ShareSheet(items: exportedFileURLs)
             }
             .alert("Export Error", isPresented: $showingError) {
                 Button("OK", role: .cancel) { }
@@ -214,39 +212,37 @@ struct DataExportView: View {
             do {
                 let fileURL: URL
                 
+                let fileURLs: [URL]
+
                 if exportType == .complete {
-                    // Export complete database using exportAll
                     let package = try await MainActor.run {
                         try CSVExporter.exportAll(context: modelContext)
                     }
-                    
-                    // Create temporary directory for export files
-                    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+
+                    let tempDir = FileManager.default.temporaryDirectory
+                        .appendingPathComponent(package.filePrefix)
                     try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-                    
-                    // Write all three CSV files
-                    let foodsURL = tempDir.appendingPathComponent("FoodItems.csv")
-                    let servingsURL = tempDir.appendingPathComponent("ServingSizes.csv")
-                    let logsURL = tempDir.appendingPathComponent("FoodLogs.csv")
-                    
+
+                    let foodsURL    = tempDir.appendingPathComponent("\(package.filePrefix)_foods.csv")
+                    let servingsURL = tempDir.appendingPathComponent("\(package.filePrefix)_servings.csv")
+                    let logsURL     = tempDir.appendingPathComponent("\(package.filePrefix)_logs.csv")
+
                     try package.foodsCSV.write(to: foodsURL, atomically: true, encoding: .utf8)
                     try package.servingsCSV.write(to: servingsURL, atomically: true, encoding: .utf8)
                     try package.logsCSV.write(to: logsURL, atomically: true, encoding: .utf8)
-                    
-                    fileURL = foodsURL  // Share the first file (user can access folder)
+
+                    fileURLs = [foodsURL, servingsURL, logsURL]
                 } else {
-                    // Export just the filtered logs
                     let logs = getFilteredLogs()
                     let csvString = CSVExporter.exportLogs(logs)
-                    
-                    // Write to temporary file
-                    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("FoodLogs_\(Date().timeIntervalSince1970).csv")
+                    let tempURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("BiteLedger_logs_\(Int(Date().timeIntervalSince1970)).csv")
                     try csvString.write(to: tempURL, atomically: true, encoding: .utf8)
-                    fileURL = tempURL
+                    fileURLs = [tempURL]
                 }
-                
+
                 await MainActor.run {
-                    exportedFileURL = fileURL
+                    exportedFileURLs = fileURLs
                     isExporting = false
                     showingShareSheet = true
                 }

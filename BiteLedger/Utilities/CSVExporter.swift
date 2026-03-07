@@ -141,7 +141,13 @@ struct CSVExporter {
             "id", "foodId", "servingId", "timestamp", "mealType", "quantity",
             "caloriesAtLogTime", "proteinAtLogTime", "carbsAtLogTime", "fatAtLogTime",
             "fiberAtLogTime", "sodiumAtLogTime", "sugarAtLogTime", "saturatedFatAtLogTime",
-            "cholesterolAtLogTime", "potassiumAtLogTime", "calciumAtLogTime", "ironAtLogTime"
+            "transFatAtLogTime", "monounsaturatedFatAtLogTime", "polyunsaturatedFatAtLogTime",
+            "cholesterolAtLogTime", "potassiumAtLogTime", "calciumAtLogTime", "ironAtLogTime",
+            "magnesiumAtLogTime", "zincAtLogTime",
+            "vitaminAAtLogTime", "vitaminCAtLogTime", "vitaminDAtLogTime",
+            "vitaminEAtLogTime", "vitaminKAtLogTime",
+            "vitaminB6AtLogTime", "vitaminB12AtLogTime",
+            "folateAtLogTime", "cholineAtLogTime", "caffeineAtLogTime"
         ]
         var rows: [[String]] = [headers]
 
@@ -164,10 +170,25 @@ struct CSVExporter {
                 optStr(log.sodiumAtLogTime),
                 optStr(log.sugarAtLogTime),
                 optStr(log.saturatedFatAtLogTime),
+                optStr(log.transFatAtLogTime),
+                optStr(log.monounsaturatedFatAtLogTime),
+                optStr(log.polyunsaturatedFatAtLogTime),
                 optStr(log.cholesterolAtLogTime),
                 optStr(log.potassiumAtLogTime),
                 optStr(log.calciumAtLogTime),
-                optStr(log.ironAtLogTime)
+                optStr(log.ironAtLogTime),
+                optStr(log.magnesiumAtLogTime),
+                optStr(log.zincAtLogTime),
+                optStr(log.vitaminAAtLogTime),
+                optStr(log.vitaminCAtLogTime),
+                optStr(log.vitaminDAtLogTime),
+                optStr(log.vitaminEAtLogTime),
+                optStr(log.vitaminKAtLogTime),
+                optStr(log.vitaminB6AtLogTime),
+                optStr(log.vitaminB12AtLogTime),
+                optStr(log.folateAtLogTime),
+                optStr(log.cholineAtLogTime),
+                optStr(log.caffeineAtLogTime)
             ]
             rows.append(row)
         }

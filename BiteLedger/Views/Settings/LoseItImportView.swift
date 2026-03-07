@@ -24,27 +24,27 @@ struct LoseItImportView: View {
     
     enum ImportType: String, CaseIterable, Identifiable {
         case logsOnly = "Food Logs Only (Single CSV)"
-        case complete = "Complete Database (Folder with 3 CSVs)"
-        
+        case complete = "Complete Database (3 CSV Files)"
+
         var id: String { rawValue }
     }
-    
+
     private var buttonText: String {
         if isImporting {
             return "Importing..."
         } else if importType == .complete {
-            return "Select Folder"
+            return "Select 3 CSV Files"
         } else {
             return "Select CSV File"
         }
     }
-    
+
     private var descriptionText: String {
-        importType == .complete ? "Import complete database from folder" : "Import your food logs from a CSV file"
+        importType == .complete ? "Import complete database from 3 CSV files" : "Import your food logs from a CSV file"
     }
-    
+
     private var buttonIcon: String {
-        importType == .complete ? "folder.fill" : "doc.fill"
+        importType == .complete ? "doc.on.doc.fill" : "doc.fill"
     }
     
     var body: some View {
@@ -85,7 +85,7 @@ struct LoseItImportView: View {
                     .cornerRadius(10)
                     
                     if importType == .complete {
-                        Text("Select the folder containing FoodItems.csv, PortionSizes.csv, and FoodLogs.csv")
+                        Text("Select all 3 files from your BiteLedger export: the foods, servings, and logs CSVs.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
@@ -138,11 +138,11 @@ struct LoseItImportView: View {
             }
             .fileImporter(
                 isPresented: $showingPicker,
-                allowedContentTypes: importType == .complete ? [.folder] : [.commaSeparatedText, .text],
-                allowsMultipleSelection: false
+                allowedContentTypes: [.commaSeparatedText, .text],
+                allowsMultipleSelection: importType == .complete
             ) { result in
                 if importType == .complete {
-                    handleFolderSelection(result)
+                    handleMultiFileSelection(result)
                 } else {
                     handleFileSelection(result)
                 }
@@ -215,17 +215,17 @@ struct LoseItImportView: View {
         }
     }
     
-    private func handleFolderSelection(_ result: Result<[URL], Error>) {
+    private func handleMultiFileSelection(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            guard let url = urls.first else { return }
-            importCompleteDatabase(url)
+            guard !urls.isEmpty else { return }
+            importCompleteDatabase(from: urls)
         case .failure(let error):
             errorMessage = error.localizedDescription
             showingResult = true
         }
     }
-    
+
     private func importCSVFile(_ url: URL) {
         isImporting = true
         errorMessage = nil
@@ -259,25 +259,66 @@ struct LoseItImportView: View {
         }
     }
     
-    private func importCompleteDatabase(_ url: URL) {
+    private func importCompleteDatabase(from urls: [URL]) {
         isImporting = true
         errorMessage = nil
         completeImportResult = nil
-        
+
         Task {
             do {
-                // Get access to the folder
-                let gotAccess = url.startAccessingSecurityScopedResource()
+                let gotAccesses = urls.map { $0.startAccessingSecurityScopedResource() }
                 defer {
-                    if gotAccess {
+                    for (url, got) in zip(urls, gotAccesses) where got {
                         url.stopAccessingSecurityScopedResource()
                     }
                 }
-                
-                let result = try await CompleteDatabaseImporter.importCompleteDatabase(from: url, modelContext: modelContext)
-                
+
+                // Auto-detect which file is foods / servings / logs by checking headers
+                var foodsCSV: String?
+                var servingsCSV: String?
+                var logsCSV: String?
+
+                for url in urls {
+                    let csv = try String(contentsOf: url, encoding: .utf8)
+                    let firstLine = csv.components(separatedBy: .newlines).first?.lowercased() ?? ""
+                    if firstLine.contains("caloriesatlogtime") {
+                        logsCSV = csv
+                    } else if firstLine.contains("nutritionmode") {
+                        foodsCSV = csv
+                    } else if firstLine.contains("gramweight") || firstLine.contains("isdefault") {
+                        servingsCSV = csv
+                    }
+                }
+
+                guard let foods = foodsCSV else {
+                    throw NSError(domain: "BiteLedger", code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Could not find foods CSV. Make sure you select the _foods.csv file."])
+                }
+                guard let servings = servingsCSV else {
+                    throw NSError(domain: "BiteLedger", code: 2,
+                        userInfo: [NSLocalizedDescriptionKey: "Could not find servings CSV. Make sure you select the _servings.csv file."])
+                }
+                guard let logs = logsCSV else {
+                    throw NSError(domain: "BiteLedger", code: 3,
+                        userInfo: [NSLocalizedDescriptionKey: "Could not find logs CSV. Make sure you select the _logs.csv file."])
+                }
+
+                let csvResult = try await MainActor.run {
+                    try CSVImporter.importBiteLedger(
+                        foodsCSV: foods,
+                        servingsCSV: servings,
+                        logsCSV: logs,
+                        context: modelContext
+                    )
+                }
+
                 await MainActor.run {
-                    completeImportResult = result
+                    completeImportResult = CompleteDatabaseImporter.ImportResult(
+                        foodsImported: csvResult.foodsCreated,
+                        portionsImported: csvResult.servingsCreated,
+                        logsImported: csvResult.logsCreated,
+                        errors: csvResult.errors
+                    )
                     isImporting = false
                     showingResult = true
                 }

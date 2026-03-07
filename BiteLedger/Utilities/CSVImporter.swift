@@ -276,10 +276,10 @@ struct CSVImporter {
         let foodMap = try importBiteLedgerFoods(csv: foodsCSV, context: context, result: &result)
 
         // 2. Import servings, linking to foods by ID
-        try importBiteLedgerServings(csv: servingsCSV, foodMap: foodMap, context: context, result: &result)
+        let servingMap = try importBiteLedgerServings(csv: servingsCSV, foodMap: foodMap, context: context, result: &result)
 
         // 3. Import logs, linking to foods and servings by ID
-        try importBiteLedgerLogs(csv: logsCSV, foodMap: foodMap, context: context, result: &result)
+        try importBiteLedgerLogs(csv: logsCSV, foodMap: foodMap, servingMap: servingMap, context: context, result: &result)
 
         try context.save()
         return result
@@ -323,6 +323,10 @@ struct CSVImporter {
 
             let mode: NutritionMode = row[modeIdx] == "per100g" ? .per100g : .perServing
 
+            func col(_ name: String) -> Double? {
+                headers.firstIndex(of: name).flatMap { Double(row[safe: $0] ?? "") }
+            }
+
             let food = FoodItem(
                 id: id,
                 name: row[nameIdx],
@@ -334,15 +338,29 @@ struct CSVImporter {
                 protein: Double(row[protIdx]) ?? 0,
                 carbs: Double(row[carbIdx]) ?? 0,
                 fat: Double(row[fatIdx]) ?? 0,
-                fiber:        headers.firstIndex(of: "fiber").flatMap { Double(row[safe: $0] ?? "") },
-                sugar:        headers.firstIndex(of: "sugar").flatMap { Double(row[safe: $0] ?? "") },
-                saturatedFat: headers.firstIndex(of: "saturatedfat").flatMap { Double(row[safe: $0] ?? "") },
-                sodium:       headers.firstIndex(of: "sodium").flatMap { Double(row[safe: $0] ?? "") },
-                cholesterol:  headers.firstIndex(of: "cholesterol").flatMap { Double(row[safe: $0] ?? "") },
-                potassium:    headers.firstIndex(of: "potassium").flatMap { Double(row[safe: $0] ?? "") },
-                calcium:      headers.firstIndex(of: "calcium").flatMap { Double(row[safe: $0] ?? "") },
-                iron:         headers.firstIndex(of: "iron").flatMap { Double(row[safe: $0] ?? "") },
-                caffeine:     headers.firstIndex(of: "caffeine").flatMap { Double(row[safe: $0] ?? "") }
+                fiber:               col("fiber"),
+                sugar:               col("sugar"),
+                saturatedFat:        col("saturatedfat"),
+                transFat:            col("transfat"),
+                polyunsaturatedFat:  col("polyunsaturatedfat"),
+                monounsaturatedFat:  col("monounsaturatedfat"),
+                sodium:              col("sodium"),
+                cholesterol:         col("cholesterol"),
+                potassium:           col("potassium"),
+                calcium:             col("calcium"),
+                iron:                col("iron"),
+                magnesium:           col("magnesium"),
+                zinc:                col("zinc"),
+                vitaminA:            col("vitamina"),
+                vitaminC:            col("vitaminc"),
+                vitaminD:            col("vitamind"),
+                vitaminE:            col("vitamine"),
+                vitaminK:            col("vitamink"),
+                vitaminB6:           col("vitaminb6"),
+                vitaminB12:          col("vitaminb12"),
+                folate:              col("folate"),
+                choline:             col("choline"),
+                caffeine:            col("caffeine")
             )
             context.insert(food)
             foodMap[id] = food
@@ -360,9 +378,9 @@ struct CSVImporter {
         foodMap: [UUID: FoodItem],
         context: ModelContext,
         result: inout ImportResult
-    ) throws {
+    ) throws -> [UUID: ServingSize] {
         let rows = parseCSV(csv)
-        guard !rows.isEmpty else { return }
+        guard !rows.isEmpty else { return [:] }
 
         let headers = rows[0].map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
 
@@ -377,6 +395,7 @@ struct CSVImporter {
         }
 
         let gramIdx = headers.firstIndex(of: "gramweight")
+        var servingMap: [UUID: ServingSize] = [:]
 
         for row in rows.dropFirst() {
             guard row.count > max(idIdx, foodIdIdx, labelIdx, defaultIdx, orderIdx) else { continue }
@@ -395,8 +414,11 @@ struct CSVImporter {
             )
             serving.foodItem = food
             context.insert(serving)
+            servingMap[id] = serving
             result.servingsCreated += 1
         }
+
+        return servingMap
     }
 
     // MARK: - BiteLedger Logs Import
@@ -405,6 +427,7 @@ struct CSVImporter {
     private static func importBiteLedgerLogs(
         csv: String,
         foodMap: [UUID: FoodItem],
+        servingMap: [UUID: ServingSize],
         context: ModelContext,
         result: inout ImportResult
     ) throws {
@@ -426,7 +449,12 @@ struct CSVImporter {
             throw ImportError.missingRequiredColumn("logs.csv missing required columns")
         }
 
+        let servingIdIdx = headers.firstIndex(of: "servingid")
         let dateFormatter = ISO8601DateFormatter()
+
+        func col(_ name: String, row: [String]) -> Double? {
+            headers.firstIndex(of: name).flatMap { Double(row[safe: $0] ?? "") }
+        }
 
         for row in rows.dropFirst() {
             guard row.count > max(foodIdIdx, mealIdx, qtyIdx, tsIdx, calIdx, protIdx, carbIdx, fatIdx) else { continue }
@@ -435,9 +463,16 @@ struct CSVImporter {
                 let food = foodMap[foodId]
             else { continue }
 
-            let mealType = MealType(rawValue: row[mealIdx]) ?? .snack
-            let quantity = Double(row[qtyIdx]) ?? 1.0
+            let mealType  = MealType(rawValue: row[mealIdx]) ?? .snack
+            let quantity  = Double(row[qtyIdx]) ?? 1.0
             let timestamp = dateFormatter.date(from: row[tsIdx]) ?? Date()
+
+            // Resolve the serving that was active when the log was created
+            let serving: ServingSize? = servingIdIdx.flatMap { idx in
+                guard let uuidStr = row[safe: idx], !uuidStr.isEmpty,
+                      let uuid = UUID(uuidString: uuidStr) else { return nil }
+                return servingMap[uuid]
+            }
 
             // Restore frozen nutrition directly — do NOT recalculate
             let log = FoodLog(
@@ -445,18 +480,34 @@ struct CSVImporter {
                 mealType: mealType,
                 quantity: quantity,
                 foodItem: food,
-                caloriesAtLogTime:     Double(row[calIdx]) ?? 0,
-                proteinAtLogTime:      Double(row[protIdx]) ?? 0,
-                carbsAtLogTime:        Double(row[carbIdx]) ?? 0,
-                fatAtLogTime:          Double(row[fatIdx]) ?? 0,
-                fiberAtLogTime:        headers.firstIndex(of: "fiberatlogtime").flatMap { Double(row[safe: $0] ?? "") },
-                sodiumAtLogTime:       headers.firstIndex(of: "sodiumatlogtime").flatMap { Double(row[safe: $0] ?? "") },
-                sugarAtLogTime:        headers.firstIndex(of: "sugaratlogtime").flatMap { Double(row[safe: $0] ?? "") },
-                saturatedFatAtLogTime: headers.firstIndex(of: "saturatedfatatlogtime").flatMap { Double(row[safe: $0] ?? "") },
-                cholesterolAtLogTime:  headers.firstIndex(of: "cholesterolatlogtime").flatMap { Double(row[safe: $0] ?? "") },
-                potassiumAtLogTime:    headers.firstIndex(of: "potassiumatlogtime").flatMap { Double(row[safe: $0] ?? "") },
-                calciumAtLogTime:      headers.firstIndex(of: "calciumatlogtime").flatMap { Double(row[safe: $0] ?? "") },
-                ironAtLogTime:         headers.firstIndex(of: "ironatlogtime").flatMap { Double(row[safe: $0] ?? "") }
+                servingSize: serving,
+                caloriesAtLogTime:            Double(row[calIdx]) ?? 0,
+                proteinAtLogTime:             Double(row[protIdx]) ?? 0,
+                carbsAtLogTime:               Double(row[carbIdx]) ?? 0,
+                fatAtLogTime:                 Double(row[fatIdx]) ?? 0,
+                fiberAtLogTime:               col("fiberatlogtime", row: row),
+                sodiumAtLogTime:              col("sodiumatlogtime", row: row),
+                sugarAtLogTime:               col("sugaratlogtime", row: row),
+                saturatedFatAtLogTime:        col("saturatedfatatlogtime", row: row),
+                transFatAtLogTime:            col("transfatatlogtime", row: row),
+                monounsaturatedFatAtLogTime:  col("monounsaturatedfatatlogtime", row: row),
+                polyunsaturatedFatAtLogTime:  col("polyunsaturatedfatatlogtime", row: row),
+                cholesterolAtLogTime:         col("cholesterolatlogtime", row: row),
+                potassiumAtLogTime:           col("potassiumatlogtime", row: row),
+                calciumAtLogTime:             col("calciumatlogtime", row: row),
+                ironAtLogTime:                col("ironatlogtime", row: row),
+                magnesiumAtLogTime:           col("magnesiumatlogtime", row: row),
+                zincAtLogTime:                col("zincatlogtime", row: row),
+                vitaminAAtLogTime:            col("vitaminaatlogtime", row: row),
+                vitaminCAtLogTime:            col("vitamincatlogtime", row: row),
+                vitaminDAtLogTime:            col("vitamindatlogtime", row: row),
+                vitaminEAtLogTime:            col("vitamineatlogtime", row: row),
+                vitaminKAtLogTime:            col("vitaminkatlogtime", row: row),
+                vitaminB6AtLogTime:           col("vitaminb6atlogtime", row: row),
+                vitaminB12AtLogTime:          col("vitaminb12atlogtime", row: row),
+                folateAtLogTime:              col("folateatlogtime", row: row),
+                cholineAtLogTime:             col("cholineatlogtime", row: row),
+                caffeineAtLogTime:            col("caffeineatlogtime", row: row)
             )
             context.insert(log)
             result.logsCreated += 1

@@ -20,7 +20,6 @@ struct TodayView: View {
     @State private var showingDatePicker = false
     @State private var currentStreak = 0
     @State private var yesterdayLogs: [FoodLog] = []
-    @State private var hasLoadedStreak = false
 
     // MARK: - Computed
 
@@ -83,10 +82,7 @@ struct TodayView: View {
             )
             .onAppear {
                 loadLogsForSelectedDate()
-                if !hasLoadedStreak {
-                    loadStreak()
-                    hasLoadedStreak = true
-                }
+                loadStreak()
                 loadPreferences()
             }
         }
