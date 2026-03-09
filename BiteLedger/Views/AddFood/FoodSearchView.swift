@@ -265,17 +265,14 @@ struct FoodSearchView: View {
                         let lastServingAmount = mostRecentLog?.quantity ?? 1.0
                         
                         let servingSizeString: String
-                        if let recentLog = mostRecentLog, 
+                        if let recentLog = mostRecentLog,
                            let servingSize = recentLog.servingSize,
                            let gramWeight = servingSize.gramWeight {
-                            let totalGrams = recentLog.quantity * gramWeight
-                            servingSizeString = "\(recentLog.quantity) \(servingSize.label) (\(Int(totalGrams))g)"
+                            servingSizeString = "\(servingSize.label) (\(Int(gramWeight))g)"
                         } else if let defaultServing = foodItem.defaultServing,
                                   let gramWeight = defaultServing.gramWeight {
                             servingSizeString = "\(defaultServing.label) (\(Int(gramWeight))g)"
                         } else if let defaultServing = foodItem.defaultServing {
-                            // Prefix with "1 " if label has no leading number so ServingSizeParser
-                            // can extract an amount and default to .serving unit (avoids "1 gram" default)
                             let label = defaultServing.label
                             servingSizeString = label.first?.isNumber == true ? label : "1 \(label)"
                         } else {
@@ -324,8 +321,9 @@ struct FoodSearchView: View {
                         }
                         
                         // Helper for mg → g conversion
+                        // Returns nil when baseGrams=1 (perServing, no gramWeight) to avoid garbage per-100g values
                         func mgToPer100g(_ mg: Double?) -> FlexibleDouble? {
-                            guard let mg = mg else { return nil }
+                            guard let mg = mg, baseGrams > 1.0 else { return nil }
                             let grams = mg / 1000.0
                             if foodItem.nutritionMode == .per100g {
                                 return FlexibleDouble(grams)
@@ -333,10 +331,10 @@ struct FoodSearchView: View {
                                 return FlexibleDouble((grams / baseGrams) * 100.0)
                             }
                         }
-                        
+
                         // Helper for mcg → g conversion
                         func mcgToPer100g(_ mcg: Double?) -> FlexibleDouble? {
-                            guard let mcg = mcg else { return nil }
+                            guard let mcg = mcg, baseGrams > 1.0 else { return nil }
                             let grams = mcg / 1_000_000.0
                             if foodItem.nutritionMode == .per100g {
                                 return FlexibleDouble(grams)
@@ -380,14 +378,17 @@ struct FoodSearchView: View {
                                 magnesium100g: mgToPer100g(foodItem.magnesium),
                                 zinc100g: mgToPer100g(foodItem.zinc),
                                 caffeine100g: mgToPer100g(foodItem.caffeine),
-                                energyKcalServing: nil,
-                                proteinsServing: nil,
-                                carbohydratesServing: nil,
-                                sugarsServing: nil,
-                                fatServing: nil,
-                                saturatedFatServing: nil,
-                                fiberServing: nil,
-                                sodiumServing: nil
+                                energyKcalServing: FlexibleDouble(foodItem.calories),
+                                proteinsServing: FlexibleDouble(foodItem.protein),
+                                carbohydratesServing: FlexibleDouble(foodItem.carbs),
+                                sugarsServing: foodItem.sugar.map { FlexibleDouble($0) },
+                                fatServing: FlexibleDouble(foodItem.fat),
+                                saturatedFatServing: foodItem.saturatedFat.map { FlexibleDouble($0) },
+                                fiberServing: foodItem.fiber.map { FlexibleDouble($0) },
+                                sodiumServing: foodItem.sodium.map { FlexibleDouble($0 / 1000.0) },  // mg → g
+                                potassiumServing: baseGrams <= 1.0 ? foodItem.potassium.map { FlexibleDouble($0) } : nil,
+                                calciumServing: baseGrams <= 1.0 ? foodItem.calcium.map { FlexibleDouble($0) } : nil,
+                                ironServing: baseGrams <= 1.0 ? foodItem.iron.map { FlexibleDouble($0) } : nil
                             ),
                             servingSize: servingSizeString,
                             quantity: foodItem.nutritionMode == .perServing && foodItem.defaultServing?.gramWeight == nil
@@ -397,7 +398,17 @@ struct FoodSearchView: View {
                             countriesTags: nil,
                             lastUsed: mostRecentLog?.timestamp
                         )
-                        selectedProductContext = (productInfo, foodItem, lastServingAmount, nil, mostRecentLog?.servingSize?.label)
+                        let initAmount: Double
+                        let initUnit: String?
+                        if let log = mostRecentLog, let label = log.servingSize?.label,
+                           let parsed = ServingSizeParser.parse(label), parsed.unit != .serving {
+                            initAmount = log.quantity * parsed.amount
+                            initUnit = parsed.unit.abbreviation
+                        } else {
+                            initAmount = mostRecentLog?.quantity ?? 1.0
+                            initUnit = nil
+                        }
+                        selectedProductContext = (productInfo, foodItem, initAmount, nil, initUnit)
                     }
                 )
             } else {
@@ -429,17 +440,14 @@ struct FoodSearchView: View {
                 let lastServingAmount = mostRecentLog?.quantity ?? 1.0
                 let servingSizeString: String
                 
-                if let recentLog = mostRecentLog, 
+                if let recentLog = mostRecentLog,
                    let servingSize = recentLog.servingSize,
                    let gramWeight = servingSize.gramWeight {
-                    let totalGrams = recentLog.quantity * gramWeight
-                    servingSizeString = "\(recentLog.quantity) \(servingSize.label) (\(Int(totalGrams))g)"
+                    servingSizeString = "\(servingSize.label) (\(Int(gramWeight))g)"
                 } else if let defaultServing = foodItem.defaultServing,
                           let gramWeight = defaultServing.gramWeight {
                     servingSizeString = "\(defaultServing.label) (\(Int(gramWeight))g)"
                 } else if let defaultServing = foodItem.defaultServing {
-                    // Prefix with "1 " if label has no leading number so ServingSizeParser
-                    // can extract an amount and default to .serving unit (avoids "1 gram" default)
                     let label = defaultServing.label
                     servingSizeString = label.first?.isNumber == true ? label : "1 \(label)"
                 } else {
@@ -482,17 +490,17 @@ struct FoodSearchView: View {
                 }
                 
                 func mgToPer100g(_ mg: Double?) -> FlexibleDouble? {
-                    guard let mg = mg else { return nil }
+                    guard let mg = mg, baseGrams > 1.0 else { return nil }
                     let grams = mg / 1000.0
                     return foodItem.nutritionMode == .per100g ? FlexibleDouble(grams) : FlexibleDouble((grams / baseGrams) * 100.0)
                 }
-                
+
                 func mcgToPer100g(_ mcg: Double?) -> FlexibleDouble? {
-                    guard let mcg = mcg else { return nil }
+                    guard let mcg = mcg, baseGrams > 1.0 else { return nil }
                     let grams = mcg / 1_000_000.0
                     return foodItem.nutritionMode == .per100g ? FlexibleDouble(grams) : FlexibleDouble((grams / baseGrams) * 100.0)
                 }
-                
+
                 let productInfo = ProductInfo(
                     code: foodItem.barcode ?? "",
                     productName: foodItem.name,
@@ -535,7 +543,10 @@ struct FoodSearchView: View {
                         fatServing: FlexibleDouble(foodItem.fat),
                         saturatedFatServing: foodItem.saturatedFat.map { FlexibleDouble($0) },
                         fiberServing: foodItem.fiber.map { FlexibleDouble($0) },
-                        sodiumServing: foodItem.sodium.map { FlexibleDouble($0) }
+                        sodiumServing: foodItem.sodium.map { FlexibleDouble($0 / 1000.0) },  // mg → g
+                        potassiumServing: baseGrams <= 1.0 ? foodItem.potassium.map { FlexibleDouble($0) } : nil,
+                        calciumServing: baseGrams <= 1.0 ? foodItem.calcium.map { FlexibleDouble($0) } : nil,
+                        ironServing: baseGrams <= 1.0 ? foodItem.iron.map { FlexibleDouble($0) } : nil
                     ),
                     servingSize: servingSizeString,
                     quantity: foodItem.nutritionMode == .perServing && foodItem.defaultServing?.gramWeight == nil
@@ -545,11 +556,21 @@ struct FoodSearchView: View {
                     countriesTags: nil,
                     lastUsed: mostRecentLog?.timestamp
                 )
-                selectedProductContext = (productInfo, foodItem, lastServingAmount, nil, mostRecentLog?.servingSize?.label)
+                let initAmount: Double
+                let initUnit: String?
+                if let log = mostRecentLog, let label = log.servingSize?.label,
+                   let parsed = ServingSizeParser.parse(label), parsed.unit != .serving {
+                    initAmount = log.quantity * parsed.amount
+                    initUnit = parsed.unit.abbreviation
+                } else {
+                    initAmount = mostRecentLog?.quantity ?? 1.0
+                    initUnit = nil
+                }
+                selectedProductContext = (productInfo, foodItem, initAmount, nil, initUnit)
             }
         )
     }
-    
+
     private var groupedMeals: [(date: Date, mealType: MealType, logs: [FoodLog])] {
         let calendar = Calendar.current
         let grouped = Dictionary(grouping: allLogs) { log -> String in
@@ -895,25 +916,23 @@ struct FoodSearchView: View {
                     magnesium100g: foodItem.magnesium.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
                     zinc100g: foodItem.zinc.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
                     caffeine100g: foodItem.caffeine.map { FlexibleDouble((($0 / 1000.0) / actualGrams) * 100.0) },  // mg → g
-                    energyKcalServing: FlexibleDouble(actualCalories),
-                    proteinsServing: FlexibleDouble(actualProtein),
-                    carbohydratesServing: FlexibleDouble(actualCarbs),
+                    energyKcalServing: FlexibleDouble(foodItem.calories),
+                    proteinsServing: FlexibleDouble(foodItem.protein),
+                    carbohydratesServing: FlexibleDouble(foodItem.carbs),
                     sugarsServing: foodItem.sugar.map { FlexibleDouble($0) },
                     fatServing: FlexibleDouble(actualFat),
                     saturatedFatServing: foodItem.saturatedFat.map { FlexibleDouble($0) },
                     fiberServing: foodItem.fiber.map { FlexibleDouble($0) },
-                    sodiumServing: foodItem.sodium.map { FlexibleDouble($0) }
+                    sodiumServing: foodItem.sodium.map { FlexibleDouble($0 / 1000.0) }  // mg → g
                 ),
                 servingSize: {
-                    // Use the actual logged grams for display
                     if let defaultServing = foodItem.defaultServing {
-                        if actualGrams > 0 && actualGrams != 100.0 {
-                            return "\(defaultServing.label) (\(Int(actualGrams))g)"
+                        if let gramWeight = defaultServing.gramWeight, gramWeight > 0 {
+                            return "\(defaultServing.label) (\(Int(gramWeight))g)"
                         } else {
-                            return defaultServing.label
+                            let label = defaultServing.label
+                            return label.first?.isNumber == true ? label : "1 \(label)"
                         }
-                    } else if actualGrams > 0 {
-                        return "\(Int(actualGrams))g"
                     } else {
                         return "1 serving"
                     }
@@ -954,22 +973,23 @@ struct FoodSearchView: View {
         
         // Check if this is from My Foods (code starts with "myfoods_")
         if product.code.hasPrefix("myfoods_") {
-            // Extract the UUID from the code
             let uuidString = String(product.code.dropFirst("myfoods_".count))
             if let uuid = UUID(uuidString: uuidString),
-               let foodItem = allLogs.compactMap({ $0.foodItem }).first(where: { $0.id == uuid }),
-               let mostRecentLog = allLogs.first(where: { $0.foodItem?.id == uuid }),
-               let servingSize = mostRecentLog.servingSize {
-                print("✅ My Foods item - directly adding with last logged serving")
-                let addedItem = AddedFoodItem(
-                    foodItem: foodItem,
-                    servingSize: servingSize,
-                    quantity: mostRecentLog.quantity
-                )
-                onFoodAdded(addedItem)
-                dismiss()
-                return
+               let foodItem = allLogs.compactMap({ $0.foodItem }).first(where: { $0.id == uuid }) {
+                let mostRecentLog = allLogs.first(where: { $0.foodItem?.id == uuid })
+                let initAmount: Double
+                let initUnit: String?
+                if let log = mostRecentLog, let label = log.servingSize?.label,
+                   let parsed = ServingSizeParser.parse(label), parsed.unit != .serving {
+                    initAmount = log.quantity * parsed.amount
+                    initUnit = parsed.unit.abbreviation
+                } else {
+                    initAmount = mostRecentLog?.quantity ?? 1.0
+                    initUnit = nil
+                }
+                selectedProductContext = (product, foodItem, initAmount, nil, initUnit)
             }
+            return
         }
         
         // Check if we already have this food item saved (to preserve any edits)
@@ -990,21 +1010,7 @@ struct FoodSearchView: View {
             }
             print("🔍 Quantity: \(mostRecentLog?.quantity ?? 0)")
             
-            // DIRECTLY ADD using the last logged data - same as meal copy feature!
-            if let recentLog = mostRecentLog,
-               let servingSize = recentLog.servingSize {
-                print("✅ Directly adding with last used serving: \(recentLog.quantityDescription)")
-                let addedItem = AddedFoodItem(
-                    foodItem: existingFood,
-                    servingSize: servingSize,
-                    quantity: recentLog.quantity
-                )
-                onFoodAdded(addedItem)
-                dismiss()
-                return
-            }
-            
-            print("⚠️ No servingSize in most recent log - falling back to picker")
+            print("⚠️ Showing picker with last-used values")
             
             // Fallback if no recent log - use the product selection flow
             let lastServingAmount = mostRecentLog?.quantity ?? 1.0
@@ -1053,13 +1059,13 @@ struct FoodSearchView: View {
             }
             
             func mgToPer100g(_ mg: Double?) -> FlexibleDouble? {
-                guard let mg = mg else { return nil }
+                guard let mg = mg, baseGrams > 1.0 else { return nil }
                 let grams = mg / 1000.0
                 return existingFood.nutritionMode == .per100g ? FlexibleDouble(grams) : FlexibleDouble((grams / baseGrams) * 100.0)
             }
-            
+
             func mcgToPer100g(_ mcg: Double?) -> FlexibleDouble? {
-                guard let mcg = mcg else { return nil }
+                guard let mcg = mcg, baseGrams > 1.0 else { return nil }
                 let grams = mcg / 1_000_000.0
                 return existingFood.nutritionMode == .per100g ? FlexibleDouble(grams) : FlexibleDouble((grams / baseGrams) * 100.0)
             }
@@ -1106,19 +1112,19 @@ struct FoodSearchView: View {
                     fatServing: FlexibleDouble(existingFood.fat),
                     saturatedFatServing: existingFood.saturatedFat.map { FlexibleDouble($0) },
                     fiberServing: existingFood.fiber.map { FlexibleDouble($0) },
-                    sodiumServing: existingFood.sodium.map { FlexibleDouble($0) }
+                    sodiumServing: existingFood.sodium.map { FlexibleDouble($0 / 1000.0) },  // mg → g
+                    potassiumServing: baseGrams <= 1.0 ? existingFood.potassium.map { FlexibleDouble($0) } : nil,
+                    calciumServing: baseGrams <= 1.0 ? existingFood.calcium.map { FlexibleDouble($0) } : nil,
+                    ironServing: baseGrams <= 1.0 ? existingFood.iron.map { FlexibleDouble($0) } : nil
                 ),
                 servingSize: {
                     if let defaultServing = existingFood.defaultServing {
-                        if actualLoggedGrams > 0 && actualLoggedGrams != (defaultServing.gramWeight ?? 0) {
-                            return "\(defaultServing.label) (\(Int(actualLoggedGrams))g)"
+                        if let gramWeight = defaultServing.gramWeight, gramWeight > 0 {
+                            return "\(defaultServing.label) (\(Int(gramWeight))g)"
                         } else {
                             let label = defaultServing.label
-                            // Prefix with "1 " if no leading number so ServingSizeParser defaults to .serving
                             return label.first?.isNumber == true ? label : "1 \(label)"
                         }
-                    } else if actualLoggedGrams > 0 {
-                        return "\(Int(actualLoggedGrams))g"
                     } else {
                         return "1 serving"
                     }
@@ -1129,7 +1135,17 @@ struct FoodSearchView: View {
                 lastUsed: mostRecentLog?.timestamp
             )
             
-            selectedProductContext = (productInfo, existingFood, lastServingAmount, nil, mostRecentLog?.servingSize?.label)
+            let initAmount: Double
+            let initUnit: String?
+            if let log = mostRecentLog, let label = log.servingSize?.label,
+               let parsed = ServingSizeParser.parse(label), parsed.unit != .serving {
+                initAmount = log.quantity * parsed.amount
+                initUnit = parsed.unit.abbreviation
+            } else {
+                initAmount = lastServingAmount
+                initUnit = nil
+            }
+            selectedProductContext = (productInfo, existingFood, initAmount, nil, initUnit)
         } else if product.code.hasPrefix("usda_") {
             // New USDA product - fetch full details to get portions
             Task {

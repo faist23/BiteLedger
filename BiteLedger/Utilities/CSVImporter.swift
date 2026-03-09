@@ -257,6 +257,216 @@ struct CSVImporter {
         return result
     }
 
+    // MARK: - LoseIt Enriched Import
+
+    /// Same as importLoseIt but applies USDA micronutrients to each FoodItem
+    /// before FoodLog.create() is called, so *AtLogTime fields capture the full
+    /// nutrition naturally — no retroactive patching needed.
+    ///
+    /// - Parameter enrichmentMap: keyed by "name|units" (lowercased), value is
+    ///   the accepted USDAFoodItem whose per-100g nutrients will be scaled to
+    ///   the LoseIt per-serving calorie ratio.
+    @MainActor
+    static func importLoseItEnriched(
+        csvString: String,
+        enrichmentMap: [String: USDAFoodItem],
+        fatSecretMap: [String: FatSecretServingData] = [:],
+        manualMap: [String: ManualNutrientOverride] = [:],
+        context: ModelContext
+    ) throws -> ImportResult {
+        var result = ImportResult()
+        let rows = parseCSV(csvString)
+        guard !rows.isEmpty else {
+            throw ImportError.invalidFormat("File appears to be empty.")
+        }
+
+        let headers = rows[0].map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
+
+        guard
+            let nameIdx  = headers.firstIndex(of: "name"),
+            let calIdx   = headers.firstIndex(of: "calories"),
+            let protIdx  = headers.firstIndex(of: "protein (g)"),
+            let carbIdx  = headers.firstIndex(of: "carbohydrates (g)"),
+            let fatIdx   = headers.firstIndex(of: "fat (g)"),
+            let qtyIdx   = headers.firstIndex(of: "quantity"),
+            let unitsIdx = headers.firstIndex(of: "units"),
+            let dateIdx  = headers.firstIndex(of: "date")
+        else {
+            throw ImportError.missingRequiredColumn(
+                "Expected LoseIt columns not found.")
+        }
+
+        let mealIdx         = headers.firstIndex(of: "meal")
+        let deletedIdx      = headers.firstIndex(of: "deleted")
+        let sodiumIdx       = headers.firstIndex(of: "sodium (mg)")
+        let cholesterolIdx  = headers.firstIndex(of: "cholesterol (mg)")
+        let saturatedFatIdx = headers.firstIndex(of: "saturated fat (g)")
+        let sugarIdx        = headers.firstIndex(of: "sugars (g)")
+        let fiberIdx        = headers.firstIndex(of: "fiber (g)")
+
+        var foodCache: [String: FoodItem] = [:]
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+
+        let minIdx = max(nameIdx, calIdx, protIdx, carbIdx, fatIdx, qtyIdx, unitsIdx, dateIdx)
+
+        for (rowIndex, row) in rows.dropFirst().enumerated() {
+            let rowNum = rowIndex + 2
+            guard row.count > minIdx else {
+                result.errors.append("Row \(rowNum): not enough columns, skipped.")
+                continue
+            }
+
+            if let dIdx = deletedIdx,
+               row[safe: dIdx]?.trimmingCharacters(in: .whitespaces) == "1" { continue }
+
+            let name    = row[nameIdx].trimmingCharacters(in: .whitespaces)
+            let units   = row[unitsIdx].trimmingCharacters(in: .whitespaces)
+            let qtyStr  = row[qtyIdx].trimmingCharacters(in: .whitespaces)
+            let dateStr = row[dateIdx].trimmingCharacters(in: .whitespaces)
+
+            guard !name.isEmpty else { continue }
+
+            let qty     = Double(qtyStr) ?? 1.0
+            let divisor = qty > 0 ? qty : 1.0
+
+            let rawCal    = parseLoseItDouble(row[calIdx])  ?? 0
+            let rawProt   = parseLoseItDouble(row[protIdx]) ?? 0
+            let rawCarb   = parseLoseItDouble(row[carbIdx]) ?? 0
+            let rawFat    = parseLoseItDouble(row[fatIdx])  ?? 0
+            let rawSod    = sodiumIdx.flatMap       { parseLoseItDouble(row[safe: $0] ?? "") }
+            let rawChol   = cholesterolIdx.flatMap  { parseLoseItDouble(row[safe: $0] ?? "") }
+            let rawSatFat = saturatedFatIdx.flatMap { parseLoseItDouble(row[safe: $0] ?? "") }
+            let rawSugar  = sugarIdx.flatMap        { parseLoseItDouble(row[safe: $0] ?? "") }
+            let rawFiber  = fiberIdx.flatMap        { parseLoseItDouble(row[safe: $0] ?? "") }
+
+            let calPer1    = rawCal  / divisor
+            let protPer1   = rawProt / divisor
+            let carbPer1   = rawCarb / divisor
+            let fatPer1    = rawFat  / divisor
+            let sodPer1    = rawSod.map    { $0 / divisor }
+            let cholPer1   = rawChol.map   { $0 / divisor }
+            let satFatPer1 = rawSatFat.map { $0 / divisor }
+            let sugarPer1  = rawSugar.map  { $0 / divisor }
+            let fiberPer1  = rawFiber.map  { $0 / divisor }
+
+            let cacheKey = "\(name.lowercased())|\(units.lowercased())"
+
+            let food: FoodItem
+            if let cached = foodCache[cacheKey] {
+                food = cached
+                result.foodsSkipped += 1
+            } else {
+                let existingFood = findLoseItFood(name: name, units: units, context: context)
+                if let existing = existingFood {
+                    food = existing
+                    result.foodsSkipped += 1
+                } else {
+                    food = FoodItem(
+                        name: name,
+                        source: "LoseIt Import",
+                        nutritionMode: .perServing,
+                        calories: calPer1,
+                        protein: protPer1,
+                        carbs: carbPer1,
+                        fat: fatPer1,
+                        fiber: fiberPer1,
+                        sugar: sugarPer1,
+                        saturatedFat: satFatPer1,
+                        sodium: sodPer1,
+                        cholesterol: cholPer1
+                    )
+                    context.insert(food)
+
+                    // Apply USDA micronutrients if a match was accepted.
+                    // Scale factor = loseIt_cal_per_serving / usda_cal_per_100g
+                    // This estimates grams per serving without needing a gramWeight.
+                    if let usdaFood = enrichmentMap[cacheKey] {
+                        let micros = usdaFood.microsPer100g
+                        if micros.caloriesPer100g > 0 && calPer1 > 0 {
+                            let scale = calPer1 / micros.caloriesPer100g
+                            food.potassium  = micros.potassium.map  { $0 * scale }
+                            food.calcium    = micros.calcium.map    { $0 * scale }
+                            food.iron       = micros.iron.map       { $0 * scale }
+                            food.magnesium  = micros.magnesium.map  { $0 * scale }
+                            food.zinc       = micros.zinc.map       { $0 * scale }
+                            food.vitaminA   = micros.vitaminA.map   { $0 * scale }
+                            food.vitaminC   = micros.vitaminC.map   { $0 * scale }
+                            food.vitaminD   = micros.vitaminD.map   { $0 * scale }
+                            food.vitaminE   = micros.vitaminE.map   { $0 * scale }
+                            food.vitaminK   = micros.vitaminK.map   { $0 * scale }
+                            food.vitaminB6  = micros.vitaminB6.map  { $0 * scale }
+                            food.vitaminB12 = micros.vitaminB12.map { $0 * scale }
+                            food.folate     = micros.folate.map     { $0 * scale }
+                            food.choline    = micros.choline.map    { $0 * scale }
+                            food.caffeine   = micros.caffeine.map   { $0 * scale }
+                        }
+                    }
+
+                    // FatSecret fallback: potassium + vitamins via % DV conversion
+                    if enrichmentMap[cacheKey] == nil,
+                       let fsData = fatSecretMap[cacheKey] {
+                        food.potassium = fsData.potassiumMg
+                        food.calcium   = fsData.calciumMg
+                        food.iron      = fsData.ironMg
+                        food.vitaminA  = fsData.vitaminAMcg
+                        food.vitaminC  = fsData.vitaminCMg
+                    }
+
+                    // Manual override: user-entered per-serving values applied directly
+                    if enrichmentMap[cacheKey] == nil, fatSecretMap[cacheKey] == nil,
+                       let manual = manualMap[cacheKey] {
+                        food.potassium  = manual.potassium
+                        food.calcium    = manual.calcium
+                        food.iron       = manual.iron
+                        food.magnesium  = manual.magnesium
+                        food.zinc       = manual.zinc
+                        food.vitaminA   = manual.vitaminA
+                        food.vitaminC   = manual.vitaminC
+                        food.vitaminD   = manual.vitaminD
+                        food.vitaminE   = manual.vitaminE
+                        food.vitaminK   = manual.vitaminK
+                        food.vitaminB6  = manual.vitaminB6
+                        food.vitaminB12 = manual.vitaminB12
+                        food.folate     = manual.folate
+                        food.choline    = manual.choline
+                        food.caffeine   = manual.caffeine
+                    }
+
+                    let servingLabel = units.isEmpty ? "serving" : units
+                    let serving = ServingSize(
+                        label: servingLabel,
+                        gramWeight: nil,
+                        isDefault: true,
+                        sortOrder: 0
+                    )
+                    serving.foodItem = food
+                    context.insert(serving)
+                    result.servingsCreated += 1
+                    result.foodsCreated += 1
+                }
+                foodCache[cacheKey] = food
+            }
+
+            let timestamp = parseDate(dateStr, formatter: dateFormatter) ?? Date()
+            let mealStr   = mealIdx.flatMap { row[safe: $0]?.trimmingCharacters(in: .whitespaces) } ?? ""
+            let mealType  = mealTypeFromLoseIt(mealStr)
+            let serving   = food.defaultServing ?? food.servingSizes.first
+            let log = FoodLog.create(
+                mealType: mealType,
+                quantity: qty,
+                food: food,
+                serving: serving,
+                timestamp: timestamp
+            )
+            context.insert(log)
+            result.logsCreated += 1
+        }
+
+        try context.save()
+        return result
+    }
+
     // MARK: - BiteLedger Full Import
 
     /// Imports BiteLedger's own 3-file export format for full round-trip restore.

@@ -11,7 +11,11 @@ class UserPreferences {
     var pinnedNutrient: String? // Nutrient raw value for 5th dashboard slot
     var goalsData: Data? // Encoded [String: NutrientGoal]
     var showMacroBalanceTile: Bool? // Show macro balance tile on dashboard (nil = true)
-    
+
+    // Streak cache — recomputed once per calendar day, then served from here
+    var cachedStreak: Int = 0
+    var streakCachedDate: Date? = nil
+
     init(pinnedNutrient: String? = nil, goalsData: Data? = nil, showMacroBalanceTile: Bool? = nil) {
         self.pinnedNutrient = pinnedNutrient
         self.goalsData = goalsData

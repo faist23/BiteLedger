@@ -82,8 +82,8 @@ struct TodayView: View {
             )
             .onAppear {
                 loadLogsForSelectedDate()
+                loadPreferences()  // must run before loadStreak so cache is available
                 loadStreak()
-                loadPreferences()
             }
         }
         .sheet(item: $selectedMeal) { meal in
@@ -116,6 +116,15 @@ struct TodayView: View {
                 modelContext.insert(foodLog)
                 try? modelContext.save()
                 loadLogsForSelectedDate()
+
+                // Invalidate the streak cache so the next loadStreak() recomputes.
+                // Only needed when logging for today — past-date edits don't change
+                // the streak display until the user navigates back to today anyway.
+                if Calendar.current.isDateInToday(selectedDate), let prefs = preferences {
+                    prefs.streakCachedDate = nil
+                    try? modelContext.save()
+                }
+                loadStreak()
             }
         }
         .sheet(item: $editingLog) { log in
@@ -209,28 +218,59 @@ struct TodayView: View {
     }
     
     private func loadStreak() {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        // Instant return: cache is already current for today
+        if let prefs = preferences,
+           let cachedDate = prefs.streakCachedDate,
+           calendar.startOfDay(for: cachedDate) == today {
+            currentStreak = prefs.cachedStreak
+            return
+        }
+
+        // Walk backward from today one COUNT query per day.
+        // Each query is O(1) with a timestamp index — no full table scan.
+        // When we reach the cached date we trust the stored value for that day
+        // and everything before it, so we stop early. For a typical "opened the
+        // app this morning" session this costs exactly 1–2 queries.
         Task {
-            let calendar = Calendar.current
-            let allDaysDescriptor = FetchDescriptor<FoodLog>(
-                sortBy: [SortDescriptor(\FoodLog.timestamp, order: .reverse)]
-            )
-            
-            do {
-                let allLogs = try modelContext.fetch(allDaysDescriptor)
-                let uniqueDays = Set(allLogs.map { calendar.startOfDay(for: $0.timestamp) })
-                
-                var streak = 0
-                var checkDate = calendar.startOfDay(for: Date())
-                
-                while uniqueDays.contains(checkDate) {
-                    streak += 1
-                    checkDate = calendar.date(byAdding: .day, value: -1, to: checkDate) ?? checkDate
+            let cachedDay = preferences?.streakCachedDate.map { calendar.startOfDay(for: $0) }
+            let cachedValue = preferences?.cachedStreak ?? 0
+
+            var streak = 0
+            var checkDate = today
+
+            while true {
+                // Short-circuit: we've walked back to the cached anchor day.
+                // Since that day was already verified when we wrote the cache,
+                // just add the stored count for it and everything before.
+                if let anchor = cachedDay, checkDate == anchor, cachedValue > 0 {
+                    streak += cachedValue
+                    break
                 }
-                
-                currentStreak = streak
-            } catch {
-                print("Error calculating streak: \(error)")
-                currentStreak = 0
+
+                let nextDay = calendar.date(byAdding: .day, value: 1, to: checkDate)!
+                let count = (try? modelContext.fetchCount(
+                    FetchDescriptor<FoodLog>(predicate: #Predicate {
+                        $0.timestamp >= checkDate && $0.timestamp < nextDay
+                    })
+                )) ?? 0
+
+                if count > 0 {
+                    streak += 1
+                    checkDate = calendar.date(byAdding: .day, value: -1, to: checkDate)!
+                } else {
+                    break
+                }
+            }
+
+            currentStreak = streak
+
+            if let prefs = preferences {
+                prefs.cachedStreak = streak
+                prefs.streakCachedDate = Date()
+                try? modelContext.save()
             }
         }
     }

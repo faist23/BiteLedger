@@ -11,14 +11,11 @@ import SwiftData
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var allLogs: [FoodLog]
     @Query private var preferences: [UserPreferences]
-    
-    private var foodItemsCount: Int {
-        let descriptor = FetchDescriptor<FoodItem>()
-        return (try? modelContext.fetchCount(descriptor)) ?? 0
-    }
-    
+
+    @State private var logCount: Int = 0
+    @State private var foodItemsCount: Int = 0
+
     @State private var showingImport = false
     @State private var showingExport = false
     @State private var showingDeleteConfirmation = false
@@ -106,7 +103,18 @@ struct SettingsView: View {
                                 .foregroundStyle(.primary)
                         }
                     }
-                    
+
+                    NavigationLink {
+                        LoseItEnrichmentView()
+                    } label: {
+                        HStack {
+                            Image(systemName: "sparkles.rectangle.stack.fill")
+                                .foregroundStyle(.indigo)
+                            Text("Import LoseIt with Micronutrients")
+                                .foregroundStyle(.primary)
+                        }
+                    }
+
                     Button {
                         showingCleanupConfirmation = true
                     } label: {
@@ -129,7 +137,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Data")
                 } footer: {
-                    Text("You have \(allLogs.count) food logs and \(foodItemsCount) food items")
+                    Text("You have \(logCount) food logs and \(foodItemsCount) food items")
                         .font(.caption)
                 }
                 
@@ -140,6 +148,8 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .onAppear {
                 loadPreferences()
+                logCount = (try? modelContext.fetchCount(FetchDescriptor<FoodLog>())) ?? 0
+                foodItemsCount = (try? modelContext.fetchCount(FetchDescriptor<FoodItem>())) ?? 0
             }
             .sheet(isPresented: $showingImport) {
                 LoseItImportView()
@@ -153,7 +163,7 @@ struct SettingsView: View {
                     deleteAllData()
                 }
             } message: {
-                Text("This will permanently delete all \(allLogs.count) food logs and \(foodItemsCount) food items. This cannot be undone.")
+                Text("This will permanently delete all \(logCount) food logs and \(foodItemsCount) food items. This cannot be undone.")
             }
             .alert("Clean Up Duplicates?", isPresented: $showingCleanupConfirmation) {
                 Button("Cancel", role: .cancel) { }
@@ -328,6 +338,13 @@ struct SettingsView: View {
             await MainActor.run {
                 isDeleting = false
                 deleteProgress = ""
+                logCount = 0
+                foodItemsCount = 0
+                if let prefs = preferences.first {
+                    prefs.cachedStreak = 0
+                    prefs.streakCachedDate = nil
+                    try? modelContext.save()
+                }
             }
         }
     }

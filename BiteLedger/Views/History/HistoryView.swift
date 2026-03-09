@@ -155,43 +155,97 @@ struct HistoryView: View {
     private func loadRecentLogs() {
         Task {
             let calendar = Calendar.current
-            
-            // Calculate streak efficiently: get all unique days with logs, then count backward from today
-            let allDaysDescriptor = FetchDescriptor<FoodLog>(
+            let today = calendar.startOfDay(for: Date())
+            let prefs = preferences.first
+
+            // --- Streak (per-day COUNT queries, anchored on cached value) ---
+            let streak: Int
+            let cachedDay = prefs?.streakCachedDate.map { calendar.startOfDay(for: $0) }
+            let cachedValue = prefs?.cachedStreak ?? 0
+
+            if let anchor = cachedDay, anchor == today, cachedValue >= 0 {
+                // Cache is current — free
+                streak = cachedValue
+            } else {
+                var s = 0
+                var checkDate = today
+                while true {
+                    if let anchor = cachedDay, checkDate == anchor, cachedValue > 0 {
+                        s += cachedValue
+                        break
+                    }
+                    let nextDay = calendar.date(byAdding: .day, value: 1, to: checkDate)!
+                    let count = (try? modelContext.fetchCount(
+                        FetchDescriptor<FoodLog>(predicate: #Predicate {
+                            $0.timestamp >= checkDate && $0.timestamp < nextDay
+                        })
+                    )) ?? 0
+                    if count > 0 {
+                        s += 1
+                        checkDate = calendar.date(byAdding: .day, value: -1, to: checkDate)!
+                    } else {
+                        break
+                    }
+                }
+                streak = s
+                if let prefs {
+                    prefs.cachedStreak = streak
+                    prefs.streakCachedDate = Date()
+                    try? modelContext.save()
+                }
+            }
+
+            // --- Oldest log date (1-row fetch) ---
+            var allTimeOldestDate: Date? = nil
+            var oldestDescriptor = FetchDescriptor<FoodLog>(
+                sortBy: [SortDescriptor(\FoodLog.timestamp, order: .forward)]
+            )
+            oldestDescriptor.fetchLimit = 1
+            allTimeOldestDate = (try? modelContext.fetch(oldestDescriptor))?.first?.timestamp
+
+            // --- 2-year display window ---
+            let twoYearsAgo = calendar.date(byAdding: .year, value: -2, to: Date()) ?? Date()
+            let recentDescriptor = FetchDescriptor<FoodLog>(
+                predicate: #Predicate { $0.timestamp >= twoYearsAgo },
                 sortBy: [SortDescriptor(\FoodLog.timestamp, order: .reverse)]
             )
-            
+
             do {
-                // Get all logs to find unique days
-                let allHistoricalLogs = try modelContext.fetch(allDaysDescriptor)
-                let uniqueDays = Set(allHistoricalLogs.map { calendar.startOfDay(for: $0.timestamp) })
-                
-                // Calculate streak by checking consecutive days
-                var streak = 0
-                var checkDate = calendar.startOfDay(for: Date())
-                
-                while uniqueDays.contains(checkDate) {
-                    streak += 1
-                    checkDate = calendar.date(byAdding: .day, value: -1, to: checkDate) ?? checkDate
+                let recentLogs = try modelContext.fetch(recentDescriptor)
+                let uniqueDaysInWindow = Set(recentLogs.map { calendar.startOfDay(for: $0.timestamp) }).count
+
+                // Count unique logged days BEFORE the 2-year window by walking backward
+                // from the day before twoYearsAgo down to the oldest log date.
+                // This is at most a few dozen COUNT queries for most users.
+                var extraDays = 0
+                if let oldestDate = allTimeOldestDate {
+                    let oldestDay = calendar.startOfDay(for: oldestDate)
+                    let twoYearsAgoDay = calendar.startOfDay(for: twoYearsAgo)
+                    if oldestDay < twoYearsAgoDay {
+                        var checkDay = calendar.date(byAdding: .day, value: -1, to: twoYearsAgoDay)!
+                        while checkDay >= oldestDay {
+                            let nextDay = calendar.date(byAdding: .day, value: 1, to: checkDay)!
+                            let count = (try? modelContext.fetchCount(
+                                FetchDescriptor<FoodLog>(predicate: #Predicate {
+                                    $0.timestamp >= checkDay && $0.timestamp < nextDay
+                                })
+                            )) ?? 0
+                            if count > 0 { extraDays += 1 }
+                            checkDay = calendar.date(byAdding: .day, value: -1, to: checkDay)!
+                        }
+                    }
                 }
-                
-                // Load 2 years of data for the food frequency display
-                let twoYearsAgo = calendar.date(byAdding: .year, value: -2, to: Date()) ?? Date()
-                let recentLogs = allHistoricalLogs.filter { $0.timestamp >= twoYearsAgo }
-                
-                // Find the oldest log date from all historical data
-                let oldestDate = allHistoricalLogs.last?.timestamp
-                
+
                 calculatedStreak = streak
                 allLogs = recentLogs
-                oldestLogDate = oldestDate
-                totalUniqueDaysAllTime = uniqueDays.count
+                oldestLogDate = allTimeOldestDate
+                totalUniqueDaysAllTime = uniqueDaysInWindow + extraDays
                 isLoading = false
             } catch {
                 print("Error fetching history logs: \(error)")
-                calculatedStreak = 0
+                calculatedStreak = streak
                 allLogs = []
-                oldestLogDate = nil
+                oldestLogDate = allTimeOldestDate
                 totalUniqueDaysAllTime = 0
                 isLoading = false
             }

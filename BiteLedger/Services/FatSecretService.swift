@@ -78,7 +78,7 @@ class FatSecretService {
         return request
     }
 
-    private func executeRequest(_ request: URLRequest) async throws -> Data {
+    private func executeRequest(_ request: URLRequest, retryCount: Int = 0) async throws -> Data {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw FatSecretError.invalidResponse
@@ -92,8 +92,16 @@ class FatSecretService {
         }
         if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let err = dict["error"] as? [String: Any] {
+            let code = err["code"] as? Int ?? -1
             print("⚠️ FatSecret API Error: \(err)")
-            throw FatSecretError.httpError(statusCode: (err["code"] as? Int) ?? -1)
+            // Code 12 = rate limit — retry up to 3 times with exponential backoff
+            if code == 12 && retryCount < 3 {
+                let delay = UInt64(2_000_000_000) * UInt64(retryCount + 1)  // 2s, 4s, 6s
+                print("⏳ FatSecret rate limited, retrying in \(retryCount + 2)s… (attempt \(retryCount + 1)/3)")
+                try await Task.sleep(nanoseconds: delay)
+                return try await executeRequest(request, retryCount: retryCount + 1)
+            }
+            throw FatSecretError.httpError(statusCode: code)
         }
         return data
     }

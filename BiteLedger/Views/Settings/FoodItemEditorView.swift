@@ -68,6 +68,9 @@ struct FoodItemEditorView: View {
     @State private var newPortionLabel: String = ""
     @State private var newPortionGrams: String = ""
 
+    // Enrichment
+    @State private var showingEnrichment = false
+
     init(foodItem: FoodItem) {
         self.foodItem = foodItem
 
@@ -132,6 +135,9 @@ struct FoodItemEditorView: View {
                     // Basic Info Card
                     basicInfoCard
 
+                    // Enrichment Button
+                    enrichmentCard
+
                     // Base Serving Card
                     baseServingCard
                     
@@ -164,6 +170,11 @@ struct FoodItemEditorView: View {
                     .fontWeight(.semibold)
                 }
             }
+            .sheet(isPresented: $showingEnrichment) {
+                NutritionEnrichmentView(foodItem: foodItem) {
+                    refreshFromFoodItem()
+                }
+            }
             .alert("Food Not Found", isPresented: $showError) {
                 Button("OK") {
                     dismiss()
@@ -175,6 +186,33 @@ struct FoodItemEditorView: View {
     }
 
     // MARK: - Card Views
+
+    private var enrichmentCard: some View {
+        ElevatedCard(padding: 16, cornerRadius: 20) {
+            Button {
+                showingEnrichment = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "sparkle.magnifyingglass")
+                        .font(.title2)
+                        .foregroundStyle(Color("BrandAccent"))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Find Nutrition Data")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        Text("Search USDA, FatSecret, and Open Food Facts to fill in missing fields")
+                            .font(.caption)
+                            .foregroundStyle(Color("TextSecondary"))
+                            .multilineTextAlignment(.leading)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(Color("TextTertiary"))
+                }
+            }
+        }
+    }
 
     private var basicInfoCard: some View {
         ElevatedCard(padding: 16, cornerRadius: 20) {
@@ -718,6 +756,32 @@ struct FoodItemEditorView: View {
         newPortionGrams = ""
     }
     
+    private func refreshFromFoodItem() {
+        saturatedFat       = foodItem.saturatedFat.map       { String(format: "%.1f", $0) } ?? ""
+        transFat           = foodItem.transFat.map           { String(format: "%.1f", $0) } ?? ""
+        monounsaturatedFat = foodItem.monounsaturatedFat.map { String(format: "%.1f", $0) } ?? ""
+        polyunsaturatedFat = foodItem.polyunsaturatedFat.map { String(format: "%.1f", $0) } ?? ""
+        cholesterol        = foodItem.cholesterol.map        { String(format: "%.0f", $0) } ?? ""
+        sodium             = foodItem.sodium.map             { String(format: "%.0f", $0) } ?? ""
+        fiber              = foodItem.fiber.map              { String(format: "%.1f", $0) } ?? ""
+        sugar              = foodItem.sugar.map              { String(format: "%.1f", $0) } ?? ""
+        vitaminA           = foodItem.vitaminA.map           { String(format: "%.0f", $0) } ?? ""
+        vitaminC           = foodItem.vitaminC.map           { String(format: "%.1f", $0) } ?? ""
+        vitaminD           = foodItem.vitaminD.map           { String(format: "%.0f", $0) } ?? ""
+        vitaminE           = foodItem.vitaminE.map           { String(format: "%.1f", $0) } ?? ""
+        vitaminK           = foodItem.vitaminK.map           { String(format: "%.0f", $0) } ?? ""
+        vitaminB6          = foodItem.vitaminB6.map          { String(format: "%.1f", $0) } ?? ""
+        vitaminB12         = foodItem.vitaminB12.map         { String(format: "%.0f", $0) } ?? ""
+        folate             = foodItem.folate.map             { String(format: "%.0f", $0) } ?? ""
+        choline            = foodItem.choline.map            { String(format: "%.1f", $0) } ?? ""
+        calcium            = foodItem.calcium.map            { String(format: "%.1f", $0) } ?? ""
+        iron               = foodItem.iron.map               { String(format: "%.1f", $0) } ?? ""
+        potassium          = foodItem.potassium.map          { String(format: "%.1f", $0) } ?? ""
+        magnesium          = foodItem.magnesium.map          { String(format: "%.1f", $0) } ?? ""
+        zinc               = foodItem.zinc.map               { String(format: "%.1f", $0) } ?? ""
+        caffeine           = foodItem.caffeine.map           { String(format: "%.1f", $0) } ?? ""
+    }
+
     private func saveChanges() {
         // Verify the food item still exists
         let itemId = foodItem.id

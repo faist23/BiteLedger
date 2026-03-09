@@ -448,6 +448,17 @@ struct Nutriments: Codable {
             saturatedFatValue = 0
         }
         
+        // Per-100g micronutrient fields must be scaled by grams, not serving count.
+        // When using per-serving data with a known gramWeight, derive the gram-based multiplier.
+        // Otherwise fall back to servingMultiplier (correct for the per-100g path where
+        // servingMultiplier == totalGrams/100 already).
+        let microMultiplier: Double
+        if hasServingData && servingGrams > 0 {
+            microMultiplier = servingGrams * servingMultiplier / 100.0
+        } else {
+            microMultiplier = servingMultiplier
+        }
+
         return NutritionFacts(
             caloriesPer100g: caloriesValue,
             proteinPer100g: proteinValue,
@@ -457,25 +468,25 @@ struct Nutriments: Codable {
             sugarPer100g: sugarValue,
             sodiumPer100g: sodiumValue,
             saturatedFatPer100g: saturatedFatValue,
-            transFatPer100g: (transFat100g?.value ?? 0) * servingMultiplier,
-            monounsaturatedFatPer100g: (monounsaturatedFat100g?.value ?? 0) * servingMultiplier,
-            polyunsaturatedFatPer100g: (polyunsaturatedFat100g?.value ?? 0) * servingMultiplier,
-            cholesterolPer100g: (cholesterol100g?.value ?? 0) * servingMultiplier,
-            magnesiumPer100g: (magnesium100g?.value ?? 0) * servingMultiplier,
-            zincPer100g: (zinc100g?.value ?? 0) * servingMultiplier,
-            vitaminAPer100g: (vitaminA100g?.value ?? 0) * servingMultiplier,
-            vitaminCPer100g: (vitaminC100g?.value ?? 0) * servingMultiplier,
-            vitaminDPer100g: (vitaminD100g?.value ?? 0) * servingMultiplier,
-            vitaminEPer100g: (vitaminE100g?.value ?? 0) * servingMultiplier,
-            vitaminKPer100g: (vitaminK100g?.value ?? 0) * servingMultiplier,
-            vitaminB6Per100g: (vitaminB6100g?.value ?? 0) * servingMultiplier,
-            vitaminB12Per100g: (vitaminB12100g?.value ?? 0) * servingMultiplier,
-            folatePer100g: (folate100g?.value ?? 0) * servingMultiplier,
-            cholinePer100g: (choline100g?.value ?? 0) * servingMultiplier,
-            calciumPer100g: (calcium100g?.value ?? 0) * servingMultiplier,
-            ironPer100g: (iron100g?.value ?? 0) * servingMultiplier,
-            potassiumPer100g: (potassium100g?.value ?? 0) * servingMultiplier,
-            caffeinePer100g: (caffeine100g?.value ?? 0) * servingMultiplier
+            transFatPer100g: (transFat100g?.value ?? 0) * microMultiplier,
+            monounsaturatedFatPer100g: (monounsaturatedFat100g?.value ?? 0) * microMultiplier,
+            polyunsaturatedFatPer100g: (polyunsaturatedFat100g?.value ?? 0) * microMultiplier,
+            cholesterolPer100g: (cholesterol100g?.value ?? 0) * microMultiplier,
+            magnesiumPer100g: (magnesium100g?.value ?? 0) * microMultiplier,
+            zincPer100g: (zinc100g?.value ?? 0) * microMultiplier,
+            vitaminAPer100g: (vitaminA100g?.value ?? 0) * microMultiplier,
+            vitaminCPer100g: (vitaminC100g?.value ?? 0) * microMultiplier,
+            vitaminDPer100g: (vitaminD100g?.value ?? 0) * microMultiplier,
+            vitaminEPer100g: (vitaminE100g?.value ?? 0) * microMultiplier,
+            vitaminKPer100g: (vitaminK100g?.value ?? 0) * microMultiplier,
+            vitaminB6Per100g: (vitaminB6100g?.value ?? 0) * microMultiplier,
+            vitaminB12Per100g: (vitaminB12100g?.value ?? 0) * microMultiplier,
+            folatePer100g: (folate100g?.value ?? 0) * microMultiplier,
+            cholinePer100g: (choline100g?.value ?? 0) * microMultiplier,
+            calciumPer100g: (calcium100g?.value ?? 0) * microMultiplier,
+            ironPer100g: (iron100g?.value ?? 0) * microMultiplier,
+            potassiumPer100g: (potassium100g?.value ?? 0) * microMultiplier,
+            caffeinePer100g: (caffeine100g?.value ?? 0) * microMultiplier
         )
     }
 }

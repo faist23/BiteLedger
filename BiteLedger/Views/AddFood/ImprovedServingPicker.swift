@@ -189,8 +189,15 @@ struct ImprovedServingPicker: View {
             } else if let matchingServing = existingFoodItem.servingSizes.first(where: { serving in
                 serving.label.lowercased().contains(unitName)
             }), let gramWeight = matchingServing.gramWeight {
-                // Found a matching serving size - use its gram weight
-                return amountValue * gramWeight
+                // Divide by the label's parsed amount so "2 tablespoons (32g)" gives 16g/tbsp,
+                // not 32g/tbsp (which would make 3 tbsp = 96g instead of 48g).
+                let gramsPerUnit: Double
+                if let parsed = ServingSizeParser.parse(matchingServing.label), parsed.amount > 0 {
+                    gramsPerUnit = gramWeight / parsed.amount
+                } else {
+                    gramsPerUnit = gramWeight
+                }
+                return amountValue * gramsPerUnit
             }
         }
         
