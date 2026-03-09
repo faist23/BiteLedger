@@ -459,6 +459,9 @@ struct ImprovedServingPicker: View {
                         let multiplier = nutritionMultiplier(for: nutrition)
                         nutrientRow("Caffeine", caffeine * multiplier * 1000, "mg")
                         thinDivider()
+                    } else if let caffeineMg = product.nutriments?.caffeineServing?.value, caffeineMg > 0 {
+                        nutrientRow("Caffeine", caffeineMg * resolvedServingCount, "mg")
+                        thinDivider()
                     }
                 }
                 
@@ -620,9 +623,26 @@ struct ImprovedServingPicker: View {
     private func displayNameForUnit(_ unit: ServingUnit) -> String {
         // For .serving, we want to show the actual serving description
         if unit == .serving {
-            // Parse the product's serving description to get the unit name
-            if let parsed = ServingSizeParser.parse(product.servingSize) {
-                return parsed.unit.abbreviation.capitalized
+            // If the serving string has a non-standard unit word (e.g. "caplet", "tablet"),
+            // extract and display it instead of the generic "Serving"
+            if let servingStr = product.servingSize, !servingStr.isEmpty {
+                let stripped = servingStr
+                    .drop(while: { $0.isNumber || $0 == "." || $0 == "/" })
+                    .trimmingCharacters(in: .whitespaces)
+                // Strip a trailing "(Xg)" annotation if present
+                let unitWord: String
+                if let parenIdx = stripped.firstIndex(of: "(") {
+                    unitWord = String(stripped[..<parenIdx]).trimmingCharacters(in: .whitespaces)
+                } else {
+                    unitWord = stripped
+                }
+                let lower = unitWord.lowercased()
+                if !unitWord.isEmpty,
+                   unitWord.contains(where: { $0.isLetter }),
+                   !lower.hasPrefix("serving"),
+                   !lower.hasPrefix("portion") {
+                    return unitWord.capitalized
+                }
             }
             return "Serving"
         }

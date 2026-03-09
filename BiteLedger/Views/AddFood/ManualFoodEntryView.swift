@@ -56,10 +56,8 @@ struct ManualFoodEntryView: View {
     @State private var portions: [CustomPortion] = []
     @State private var showingPortionEditor = false
     @State private var selectedNutritionPortion: CustomPortion?  // Which portion the nutrition is for
-    
-    private var isValid: Bool {
-        !foodName.isEmpty && !calories.isEmpty
-    }
+    @State private var showingValidationAlert = false
+    @State private var validationMessage = ""
     
     var body: some View {
         NavigationStack {
@@ -255,66 +253,9 @@ struct ManualFoodEntryView: View {
                         .font(.caption)
                 }
                 
-                // Nutrition Facts - FDA label order
                 Section {
-                    ManualNutritionRow(label: "Calories", value: $calories, unit: "")
-                        .fontWeight(.medium)
-                } header: {
-                    Text("Nutrition Facts")
-                } footer: {
-                    if !portions.isEmpty {
-                        Text("Enter nutrition values for: \(servingDescription). The app will automatically calculate nutrition for your portion sizes (Small, Medium, Large) based on their weights.")
-                            .font(.caption)
-                    } else {
-                        Text("Enter nutrition values per serving (\(servingDescription))")
-                            .font(.caption)
-                    }
-                }
-                
-                Section("Fats") {
-                    ManualNutritionRow(label: "Total Fat", value: $totalFat, unit: "g")
-                    DVNutrientRow(label: "Saturated Fat", value: $saturatedFat, unit: "g", dailyValue: 20, usePercent: $dvMode.saturatedFat, isIndented: true)
-                    ManualNutritionRow(label: "  Trans Fat", value: $transFat, unit: "g", isIndented: true)
-                    ManualNutritionRow(label: "  Monounsaturated Fat", value: $monounsaturatedFat, unit: "g", isIndented: true)
-                    ManualNutritionRow(label: "  Polyunsaturated Fat", value: $polyunsaturatedFat, unit: "g", isIndented: true)
-                }
-
-                Section("Other Nutrients") {
-                    DVNutrientRow(label: "Cholesterol", value: $cholesterol, unit: "mg", dailyValue: 300, usePercent: $dvMode.cholesterol)
-                    DVNutrientRow(label: "Sodium", value: $sodium, unit: "mg", dailyValue: 2300, usePercent: $dvMode.sodium)
-                }
-
-                Section("Carbohydrates") {
-                    ManualNutritionRow(label: "Total Carbohydrate", value: $totalCarbs, unit: "g")
-                    DVNutrientRow(label: "Dietary Fiber", value: $fiber, unit: "g", dailyValue: 28, usePercent: $dvMode.fiber, isIndented: true)
-                    ManualNutritionRow(label: "  Total Sugars", value: $sugar, unit: "g", isIndented: true)
-                }
-
-                Section("Protein") {
-                    ManualNutritionRow(label: "Protein", value: $protein, unit: "g")
-                }
-
-                Section {
-                    DVNutrientRow(label: "Vitamin A",   value: $vitaminA,   unit: "mcg", dailyValue: 900,  usePercent: $dvMode.vitaminA)
-                    DVNutrientRow(label: "Vitamin C",   value: $vitaminC,   unit: "mg", dailyValue: 90,   usePercent: $dvMode.vitaminC)
-                    DVNutrientRow(label: "Vitamin D",   value: $vitaminD,   unit: "mcg", dailyValue: 20,   usePercent: $dvMode.vitaminD)
-                    DVNutrientRow(label: "Vitamin E",   value: $vitaminE,   unit: "mg", dailyValue: 15,   usePercent: $dvMode.vitaminE)
-                    DVNutrientRow(label: "Vitamin K",   value: $vitaminK,   unit: "mcg", dailyValue: 120,  usePercent: $dvMode.vitaminK)
-                    DVNutrientRow(label: "Vitamin B6",  value: $vitaminB6,  unit: "mg", dailyValue: 1.7,  usePercent: $dvMode.vitaminB6)
-                    DVNutrientRow(label: "Vitamin B12", value: $vitaminB12, unit: "mcg", dailyValue: 2.4,  usePercent: $dvMode.vitaminB12)
-                    DVNutrientRow(label: "Folate",      value: $folate,     unit: "mcg", dailyValue: 400,  usePercent: $dvMode.folate)
-                    DVNutrientRow(label: "Choline",     value: $choline,    unit: "mg", dailyValue: 550,  usePercent: $dvMode.choline)
-                    DVNutrientRow(label: "Calcium",     value: $calcium,    unit: "mg", dailyValue: 1300, usePercent: $dvMode.calcium)
-                    DVNutrientRow(label: "Iron",        value: $iron,       unit: "mg", dailyValue: 18,   usePercent: $dvMode.iron)
-                    DVNutrientRow(label: "Potassium",   value: $potassium,  unit: "mg", dailyValue: 4700, usePercent: $dvMode.potassium)
-                    DVNutrientRow(label: "Magnesium",   value: $magnesium,  unit: "mg", dailyValue: 420,  usePercent: $dvMode.magnesium)
-                    DVNutrientRow(label: "Zinc",        value: $zinc,       unit: "mg", dailyValue: 11,   usePercent: $dvMode.zinc)
-                    ManualNutritionRow(label: "Caffeine", value: $caffeine, unit: "mg")
-                } header: {
-                    Text("Vitamins & Minerals (Optional)")
-                } footer: {
-                    Text("Tap the unit (mg, mcg, g) to switch between absolute amount and % Daily Value.")
-                        .font(.caption)
+                    nutritionLabelCard
+                        .listRowInsets(EdgeInsets())
                 }
             }
             .navigationTitle("New Food")
@@ -328,14 +269,29 @@ struct ManualFoodEntryView: View {
                 
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
-                        addManualFood()
+                        if foodName.isEmpty && calories.isEmpty {
+                            validationMessage = "Please enter a food name and calories."
+                            showingValidationAlert = true
+                        } else if foodName.isEmpty {
+                            validationMessage = "Please enter a food name."
+                            showingValidationAlert = true
+                        } else if calories.isEmpty {
+                            validationMessage = "Please enter calories (use 0 if the food has no calories)."
+                            showingValidationAlert = true
+                        } else {
+                            addManualFood()
+                        }
                     } label: {
                         Image(systemName: "checkmark")
                             .fontWeight(.semibold)
-                            .foregroundStyle(isValid ? .orange : .gray)
+                            .foregroundStyle(.orange)
                     }
-                    .disabled(!isValid)
                 }
+            }
+            .alert("Required Fields Missing", isPresented: $showingValidationAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(validationMessage)
             }
             .fullScreenCover(isPresented: $showingScanner) {
                 NutritionLabelScannerView { nutritionData in
@@ -350,6 +306,108 @@ struct ManualFoodEntryView: View {
         }
     }
     
+    // MARK: - FDA Nutrition Label Card
+
+    private var nutritionLabelCard: some View {
+        ElevatedCard(padding: 0, cornerRadius: 20) {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Nutrition Facts")
+                    .font(.system(size: 32, weight: .black))
+                    .foregroundStyle(Color("TextPrimary"))
+                Rectangle()
+                    .fill(Color("TextPrimary"))
+                    .frame(height: 8)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+
+            VStack(alignment: .leading, spacing: 0) {
+            // Serving description
+            Text(servingDescription)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 8)
+            Text("Amount per serving")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 2)
+
+            // Calories row
+            HStack(alignment: .firstTextBaseline) {
+                Text("Calories")
+                    .font(.system(size: 32, weight: .black))
+                Spacer()
+                TextField("0", text: $calories)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .font(.system(size: 44, weight: .black))
+                    .frame(width: 120)
+            }
+            .padding(.vertical, 4)
+
+            Rectangle()
+                .fill(Color("TextPrimary"))
+                .frame(height: 5)
+
+            // % DV header
+            Text("% Daily Value*")
+                .font(.system(size: 11))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.top, 4)
+                .padding(.bottom, 2)
+
+            // Main nutrient block
+            LabelNutrientRow(label: "Total Fat", value: $totalFat, unit: "g", dailyValue: nil, usePercent: .constant(false), bold: true, indented: false)
+            LabelNutrientRow(label: "Saturated Fat", value: $saturatedFat, unit: "g", dailyValue: 20, usePercent: $dvMode.saturatedFat, bold: false, indented: true)
+            LabelNutrientRow(label: "Trans Fat", value: $transFat, unit: "g", dailyValue: nil, usePercent: .constant(false), bold: false, indented: true)
+            LabelNutrientRow(label: "Monounsaturated Fat", value: $monounsaturatedFat, unit: "g", dailyValue: nil, usePercent: .constant(false), bold: false, indented: true)
+            LabelNutrientRow(label: "Polyunsaturated Fat", value: $polyunsaturatedFat, unit: "g", dailyValue: nil, usePercent: .constant(false), bold: false, indented: true)
+            LabelNutrientRow(label: "Cholesterol", value: $cholesterol, unit: "mg", dailyValue: 300, usePercent: $dvMode.cholesterol, bold: true, indented: false)
+            LabelNutrientRow(label: "Sodium", value: $sodium, unit: "mg", dailyValue: 2300, usePercent: $dvMode.sodium, bold: true, indented: false)
+            LabelNutrientRow(label: "Total Carbohydrate", value: $totalCarbs, unit: "g", dailyValue: nil, usePercent: .constant(false), bold: true, indented: false)
+            LabelNutrientRow(label: "Dietary Fiber", value: $fiber, unit: "g", dailyValue: 28, usePercent: $dvMode.fiber, bold: false, indented: true)
+            LabelNutrientRow(label: "Total Sugars", value: $sugar, unit: "g", dailyValue: nil, usePercent: .constant(false), bold: false, indented: true)
+            LabelNutrientRow(label: "Protein", value: $protein, unit: "g", dailyValue: nil, usePercent: .constant(false), bold: true, indented: false)
+
+            Rectangle()
+                .fill(Color("TextPrimary"))
+                .frame(height: 6)
+
+            // Vitamins & Minerals block
+            LabelNutrientRow(label: "Vitamin D", value: $vitaminD, unit: "mcg", dailyValue: 20, usePercent: $dvMode.vitaminD, bold: false, indented: false)
+            LabelNutrientRow(label: "Calcium", value: $calcium, unit: "mg", dailyValue: 1300, usePercent: $dvMode.calcium, bold: false, indented: false)
+            LabelNutrientRow(label: "Iron", value: $iron, unit: "mg", dailyValue: 18, usePercent: $dvMode.iron, bold: false, indented: false)
+            LabelNutrientRow(label: "Potassium", value: $potassium, unit: "mg", dailyValue: 4700, usePercent: $dvMode.potassium, bold: false, indented: false)
+            LabelNutrientRow(label: "Vitamin A", value: $vitaminA, unit: "mcg", dailyValue: 900, usePercent: $dvMode.vitaminA, bold: false, indented: false)
+            LabelNutrientRow(label: "Vitamin C", value: $vitaminC, unit: "mg", dailyValue: 90, usePercent: $dvMode.vitaminC, bold: false, indented: false)
+            LabelNutrientRow(label: "Vitamin E", value: $vitaminE, unit: "mg", dailyValue: 15, usePercent: $dvMode.vitaminE, bold: false, indented: false)
+            LabelNutrientRow(label: "Vitamin K", value: $vitaminK, unit: "mcg", dailyValue: 120, usePercent: $dvMode.vitaminK, bold: false, indented: false)
+            LabelNutrientRow(label: "Vitamin B6", value: $vitaminB6, unit: "mg", dailyValue: 1.7, usePercent: $dvMode.vitaminB6, bold: false, indented: false)
+            LabelNutrientRow(label: "Vitamin B12", value: $vitaminB12, unit: "mcg", dailyValue: 2.4, usePercent: $dvMode.vitaminB12, bold: false, indented: false)
+            LabelNutrientRow(label: "Folate", value: $folate, unit: "mcg", dailyValue: 400, usePercent: $dvMode.folate, bold: false, indented: false)
+            LabelNutrientRow(label: "Choline", value: $choline, unit: "mg", dailyValue: 550, usePercent: $dvMode.choline, bold: false, indented: false)
+            LabelNutrientRow(label: "Magnesium", value: $magnesium, unit: "mg", dailyValue: 420, usePercent: $dvMode.magnesium, bold: false, indented: false)
+            LabelNutrientRow(label: "Zinc", value: $zinc, unit: "mg", dailyValue: 11, usePercent: $dvMode.zinc, bold: false, indented: false)
+            LabelNutrientRow(label: "Caffeine", value: $caffeine, unit: "mg", dailyValue: nil, usePercent: .constant(false), bold: false, indented: false)
+
+            Rectangle()
+                .fill(Color("TextPrimary"))
+                .frame(height: 4)
+
+            Text("* The % Daily Value (DV) tells you how much a nutrient in a serving of food contributes to a daily diet. 2,000 calories a day is used for general nutrition advice. Tap unit to switch between amount and % DV.")
+                .font(.system(size: 9))
+                .foregroundStyle(Color("TextSecondary"))
+                .padding(.top, 8)
+                .fixedSize(horizontal: false, vertical: true)
+            } // end inner VStack
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+        } // end outer VStack
+        } // end ElevatedCard
+    }
+
     private func populateFromScan(_ data: NutritionData) {
         // Fill in serving size if detected
         if let servingSize = data.servingSize {
@@ -635,6 +693,69 @@ struct DVNutrientRow: View {
             let converted = usePercent
                 ? num / 100.0 * dailyValue   // % → absolute
                 : num / dailyValue * 100      // absolute → %
+            value = converted.truncatingRemainder(dividingBy: 1) == 0
+                ? String(format: "%.0f", converted)
+                : String(format: "%.1f", converted)
+        }
+        usePercent.toggle()
+    }
+}
+
+private struct LabelNutrientRow: View {
+    let label: String
+    @Binding var value: String
+    let unit: String
+    let dailyValue: Double?
+    @Binding var usePercent: Bool
+    var bold: Bool = false
+    var indented: Bool = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                if indented {
+                    Spacer().frame(width: 16)
+                }
+                Text(label)
+                    .font(.system(size: 14))
+                    .fontWeight(bold ? .black : .regular)
+                Spacer()
+                HStack(spacing: 4) {
+                    TextField("0", text: $value)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 60)
+                        .font(.system(size: 14))
+                        .fontWeight(bold ? .bold : .regular)
+                    if let dv = dailyValue {
+                        Button {
+                            toggleUnit(dv: dv)
+                        } label: {
+                            Text(usePercent ? "%" : unit)
+                                .font(.system(size: 14, weight: usePercent ? .semibold : .regular))
+                                .foregroundStyle(usePercent ? Color.blue : Color("TextSecondary"))
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Text(unit)
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color("TextSecondary"))
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+
+            Rectangle()
+                .fill(Color("TextPrimary"))
+                .frame(height: 1)
+        }
+    }
+
+    private func toggleUnit(dv: Double) {
+        if let num = Double(value), num > 0 {
+            let converted = usePercent
+                ? num / 100.0 * dv
+                : num / dv * 100
             value = converted.truncatingRemainder(dividingBy: 1) == 0
                 ? String(format: "%.0f", converted)
                 : String(format: "%.1f", converted)

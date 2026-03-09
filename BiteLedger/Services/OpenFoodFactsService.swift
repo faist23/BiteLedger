@@ -318,6 +318,7 @@ struct Nutriments: Codable {
     var cholesterolServing: FlexibleDouble? = nil // mg/serving
     var calciumServing: FlexibleDouble? = nil     // mg/serving
     var ironServing: FlexibleDouble? = nil        // mg/serving
+    var caffeineServing: FlexibleDouble? = nil    // mg/serving
     var vitaminAServing: FlexibleDouble? = nil    // mcg/serving
     var vitaminCServing: FlexibleDouble? = nil    // mg/serving
     

@@ -307,7 +307,8 @@ struct HistoryView: View {
         VStack(spacing: 16) {
             ForEach(activeGoals, id: \.rawValue) { nutrient in
                 let data = dailyTotals(for: nutrient)
-                if data.contains(where: { $0.1 > 0 }) {
+                let isPillSelected = selectedExtraSet.contains(nutrient)
+                if data.contains(where: { $0.1 > 0 }) || isPillSelected {
                     GoalChartCard(
                         nutrient: nutrient,
                         goal: userGoals[nutrient.rawValue],
@@ -344,7 +345,8 @@ struct HistoryView: View {
         let pinnedNutrient = preferences.first?.pinnedNutrient.flatMap { Nutrient(rawValue: $0) }
         let core = Set([Nutrient.calories, .protein, .carbs, .fat, pinnedNutrient].compactMap { $0 })
         let withGoals = Set(preferences.first?.activeGoalNutrients ?? [])
-        let alwaysShown = core.union(withGoals)
+        // Caffeine is always available as a pill regardless of goal settings
+        let alwaysShown = core.union(withGoals).subtracting([Nutrient.caffeine])
         return Self.nutritionLabelOrder.filter { !alwaysShown.contains($0) }
     }
     

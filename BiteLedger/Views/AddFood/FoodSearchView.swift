@@ -388,7 +388,8 @@ struct FoodSearchView: View {
                                 sodiumServing: foodItem.sodium.map { FlexibleDouble($0 / 1000.0) },  // mg → g
                                 potassiumServing: baseGrams <= 1.0 ? foodItem.potassium.map { FlexibleDouble($0) } : nil,
                                 calciumServing: baseGrams <= 1.0 ? foodItem.calcium.map { FlexibleDouble($0) } : nil,
-                                ironServing: baseGrams <= 1.0 ? foodItem.iron.map { FlexibleDouble($0) } : nil
+                                ironServing: baseGrams <= 1.0 ? foodItem.iron.map { FlexibleDouble($0) } : nil,
+                                caffeineServing: baseGrams <= 1.0 ? foodItem.caffeine.map { FlexibleDouble($0) } : nil
                             ),
                             servingSize: servingSizeString,
                             quantity: foodItem.nutritionMode == .perServing && foodItem.defaultServing?.gramWeight == nil
@@ -546,7 +547,8 @@ struct FoodSearchView: View {
                         sodiumServing: foodItem.sodium.map { FlexibleDouble($0 / 1000.0) },  // mg → g
                         potassiumServing: baseGrams <= 1.0 ? foodItem.potassium.map { FlexibleDouble($0) } : nil,
                         calciumServing: baseGrams <= 1.0 ? foodItem.calcium.map { FlexibleDouble($0) } : nil,
-                        ironServing: baseGrams <= 1.0 ? foodItem.iron.map { FlexibleDouble($0) } : nil
+                        ironServing: baseGrams <= 1.0 ? foodItem.iron.map { FlexibleDouble($0) } : nil,
+                        caffeineServing: baseGrams <= 1.0 ? foodItem.caffeine.map { FlexibleDouble($0) } : nil
                     ),
                     servingSize: servingSizeString,
                     quantity: foodItem.nutritionMode == .perServing && foodItem.defaultServing?.gramWeight == nil
@@ -871,7 +873,10 @@ struct FoodSearchView: View {
             } else if let defaultServing = foodItem.defaultServing, let gramWeight = defaultServing.gramWeight {
                 actualGrams = gramWeight
             } else {
-                actualGrams = 100.0
+                // perServing foods with no gram weight use baseGrams=1 so the mineral/caffeine
+                // per-100g values are computed as value*100, matching how paths 1 & 2 work.
+                // Per-100g foods without a serving fall back to 100g as before.
+                actualGrams = foodItem.nutritionMode == .perServing ? 1.0 : 100.0
             }
             
             // Convert to per-100g for ProductInfo display
@@ -923,7 +928,11 @@ struct FoodSearchView: View {
                     fatServing: FlexibleDouble(actualFat),
                     saturatedFatServing: foodItem.saturatedFat.map { FlexibleDouble($0) },
                     fiberServing: foodItem.fiber.map { FlexibleDouble($0) },
-                    sodiumServing: foodItem.sodium.map { FlexibleDouble($0 / 1000.0) }  // mg → g
+                    sodiumServing: foodItem.sodium.map { FlexibleDouble($0 / 1000.0) },  // mg → g
+                    potassiumServing: foodItem.nutritionMode == .perServing && foodItem.defaultServing?.gramWeight == nil ? foodItem.potassium.map { FlexibleDouble($0) } : nil,
+                    calciumServing: foodItem.nutritionMode == .perServing && foodItem.defaultServing?.gramWeight == nil ? foodItem.calcium.map { FlexibleDouble($0) } : nil,
+                    ironServing: foodItem.nutritionMode == .perServing && foodItem.defaultServing?.gramWeight == nil ? foodItem.iron.map { FlexibleDouble($0) } : nil,
+                    caffeineServing: foodItem.nutritionMode == .perServing && foodItem.defaultServing?.gramWeight == nil ? foodItem.caffeine.map { FlexibleDouble($0) } : nil
                 ),
                 servingSize: {
                     if let defaultServing = foodItem.defaultServing {
@@ -1115,7 +1124,8 @@ struct FoodSearchView: View {
                     sodiumServing: existingFood.sodium.map { FlexibleDouble($0 / 1000.0) },  // mg → g
                     potassiumServing: baseGrams <= 1.0 ? existingFood.potassium.map { FlexibleDouble($0) } : nil,
                     calciumServing: baseGrams <= 1.0 ? existingFood.calcium.map { FlexibleDouble($0) } : nil,
-                    ironServing: baseGrams <= 1.0 ? existingFood.iron.map { FlexibleDouble($0) } : nil
+                    ironServing: baseGrams <= 1.0 ? existingFood.iron.map { FlexibleDouble($0) } : nil,
+                    caffeineServing: baseGrams <= 1.0 ? existingFood.caffeine.map { FlexibleDouble($0) } : nil
                 ),
                 servingSize: {
                     if let defaultServing = existingFood.defaultServing {
