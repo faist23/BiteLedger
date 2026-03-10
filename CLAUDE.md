@@ -88,6 +88,16 @@ sugarsServing: nil, fatServing: nil, saturatedFatServing: nil, fiberServing: nil
 ```
 USDA is a per-100g database. If any `*Serving` field is non-nil, `ImprovedServingPicker.nutritionMultiplier` takes the `hasServingData = true` branch, which returns `resolvedServingCount` (= 1.0 for a single item) multiplied against the serving value — producing wildly wrong calories (e.g., 1452 cal for one frankfurter instead of ~142). All USDA nutrition must flow through the `totalGrams / 100` path using `*100g` fields only.
 
+### perServing-no-gramWeight Mineral/Caffeine Invariant (Critical — Do Not Regress)
+For `perServing` foods with no `gramWeight` (`baseGrams = 1.0`), `mgToPer100g()` guards `baseGrams > 1.0` and returns `nil` to prevent garbage per-100g values. These foods rely on `*Serving` fallback fields instead:
+- `Nutriments` has `potassiumServing`, `calciumServing`, `ironServing`, `caffeineServing` (all `FlexibleDouble? = nil`, mg/serving)
+- All four code paths in `FoodSearchView` that build `ProductInfo` for existing foods must set these when `baseGrams <= 1.0`
+- `ImprovedServingPicker` displays these using `nutrientMg * resolvedServingCount` (the `else if` branch after the `*100g` check)
+- In `searchMyFoods` (path 3): use `actualGrams = 1.0` for `perServing` foods without `gramWeight` (not the 100.0 fallback) so mineral `*100g` fields are computed correctly
+
+### `displayNameForUnit(.serving)` in `ImprovedServingPicker`
+Strips the leading number from `product.servingSize` (e.g. `"1 caplet"` → `"Caplet"`) rather than running through `ServingSizeParser` which maps unknown unit words to `.serving` and would show "Serving".
+
 ## CSV Import/Export
 
 `CSVExporter` produces three files for full round-trip backup: `foods.csv`, `servings.csv`, `logs.csv`.
@@ -108,9 +118,10 @@ The export/import guarantee: export → delete app → import produces identical
 ```
 Views/
   Home/           — TodayView (main tab), NutritionDashboard, MealSection, FoodLogEditView
-  AddFood/        — FoodSearchView, ProductDetailView, MealEntryView, serving pickers
+  AddFood/        — FoodSearchView, ProductDetailView, MealEntryView, ManualFoodEntryView, serving pickers
   History/        — HistoryView
-  Settings/       — SettingsView, DataExportView, LoseItImportView, MyFoodsManagementView, FoodItemEditorView
+  Settings/       — SettingsView, DataExportView, LoseItImportView, LoseItEnrichmentView,
+                    MyFoodsManagementView, FoodItemEditorView
 ```
 
 `TodayView` is the root view. It reads `FoodLog` entries for the selected date and passes them to `NutritionDashboard` and `MealSection` components.
@@ -140,6 +151,8 @@ Every view that shows nutrition for a food item, meal, or day's totals must be f
 - `DetailedNutritionView` — full label, shown for daily and meal nutrition totals
 - `FoodLogEditView` — full label with live-updating preview as serving/quantity changes
 - `ImprovedServingPicker` — full label using `NutritionFacts` data from the food APIs
+- `ManualFoodEntryView` — editable label using `ElevatedCard(padding:0, cornerRadius:20)`; rows use `LabelNutrientRow` (14pt, tappable unit/% toggle); uses same card style as `FoodItemEditorView`
+- `FoodItemEditorView` — editable label using `ElevatedCard(padding:0, cornerRadius:20)` inside a `ScrollView`
 
 **FDA daily values** (defined in `DetailedNutritionView` and duplicated in `FoodLogEditView` — consolidate into a shared component if these diverge further):
 Total Fat 78g, Saturated Fat 20g, Cholesterol 300mg, Sodium 2300mg, Total Carbohydrate 275g, Dietary Fiber 28g, Protein 50g, Vitamin D 20mcg, Calcium 1300mg, Iron 18mg, Potassium 4700mg.

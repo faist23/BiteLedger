@@ -14,13 +14,14 @@ import Foundation
 final class FoodLog {
 
     // MARK: Identity
-    var id: UUID
-    var timestamp: Date
-    var mealType: MealType
+    // CloudKit requires all stored properties to be optional or have default values.
+    var id: UUID = UUID()
+    var timestamp: Date = Date()
+    var mealType: MealType = MealType.breakfast
 
     // MARK: Quantity
     /// Number of servings logged. e.g., 1.5 means 1.5 × the selected ServingSize.
-    var quantity: Double
+    var quantity: Double = 1
 
     // MARK: Relationships
     /// The food that was eaten. Nullified (not deleted) if food is removed.
@@ -38,10 +39,10 @@ final class FoodLog {
     // Always read these fields when displaying a logged entry's nutrition.
     // Never call NutritionCalculator on a FoodLog that already exists.
 
-    var caloriesAtLogTime: Double
-    var proteinAtLogTime: Double
-    var carbsAtLogTime: Double
-    var fatAtLogTime: Double
+    var caloriesAtLogTime: Double = 0
+    var proteinAtLogTime: Double = 0
+    var carbsAtLogTime: Double = 0
+    var fatAtLogTime: Double = 0
     var fiberAtLogTime: Double?
     var sodiumAtLogTime: Double?
     var sugarAtLogTime: Double?

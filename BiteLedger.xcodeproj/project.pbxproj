@@ -42,9 +42,22 @@
 		7EC34A892F55EEA60041ECE0 /* CLAUDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLAUDE.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		7ED82FD92F5F89E000FB8E6A /* Exceptions for "BiteLedger" folder in "BiteLedger" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 7E89B53D2F43963C00B23EA8 /* BiteLedger */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		7E89B5402F43963C00B23EA8 /* BiteLedger */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				7ED82FD92F5F89E000FB8E6A /* Exceptions for "BiteLedger" folder in "BiteLedger" target */,
+			);
 			path = BiteLedger;
 			sourceTree = "<group>";
 		};
@@ -424,6 +437,7 @@
 				DEVELOPMENT_TEAM = DT58WA8N32;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BiteLedger/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "BiteLedger needs camera access to scan product barcodes for quick food logging.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "BiteLedger can sync your nutrition data to Apple Health if you choose.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "BiteLedger can save your nutrition data to Apple Health if you choose.";
@@ -461,6 +475,7 @@
 				DEVELOPMENT_TEAM = DT58WA8N32;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BiteLedger/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "BiteLedger needs camera access to scan product barcodes for quick food logging.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "BiteLedger can sync your nutrition data to Apple Health if you choose.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "BiteLedger can save your nutrition data to Apple Health if you choose.";

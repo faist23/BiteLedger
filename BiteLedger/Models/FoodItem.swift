@@ -46,36 +46,22 @@ enum MealType: String, Codable, CaseIterable, Identifiable {
 final class FoodItem {
 
     // MARK: Identity
-    var id: UUID
-    var name: String
+    // CloudKit requires all stored properties to be optional or have default values.
+    var id: UUID = UUID()
+    var name: String = ""
     var brand: String?
     var barcode: String?
-
-    /// Where this food came from.
-    /// Values: "OpenFoodFacts" | "USDA" | "FatSecret" | "Manual Entry" | "CSV Import"
-    var source: String
-
-    var dateAdded: Date
+    var source: String = ""
+    var dateAdded: Date = Date()
 
     // MARK: Nutrition Mode
-    /// Determines how nutrition values are interpreted.
-    /// .per100g  → calories/protein/etc are per 100 grams
-    /// .perServing → calories/protein/etc are per 1 default serving
-    var nutritionMode: NutritionMode
+    var nutritionMode: NutritionMode = NutritionMode.per100g
 
     // MARK: Nutrition Values
-    // Interpretation depends on nutritionMode (see above).
-    // All values use standard units:
-    //   calories → kcal
-    //   protein, carbs, fat, fiber, sugar, saturatedFat, transFat → grams
-    //   sodium, cholesterol, potassium, calcium, iron → milligrams
-    //   vitaminA, vitaminC, vitaminD, vitaminB6, vitaminB12, folate → micrograms or mg per label convention
-    //   caffeine → milligrams
-
-    var calories: Double
-    var protein: Double
-    var carbs: Double
-    var fat: Double
+    var calories: Double = 0
+    var protein: Double = 0
+    var carbs: Double = 0
+    var fat: Double = 0
 
     // Optional macros
     var fiber: Double?

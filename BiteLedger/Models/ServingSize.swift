@@ -14,14 +14,15 @@ import Foundation
 final class ServingSize {
 
     // MARK: Identity
-    var id: UUID
-    var dateAdded: Date
+    // CloudKit requires all stored properties to be optional or have default values.
+    var id: UUID = UUID()
+    var dateAdded: Date = Date()
 
     // MARK: Display
     /// Human-readable label shown in the UI.
     /// Examples: "1 cup", "1 medium banana", "1 sandwich", "2 cookies", "1 slice"
     /// The quantity is baked into the label — do NOT store quantity separately.
-    var label: String
+    var label: String = ""
 
     /// Weight in grams for this serving. nil when unknown or not applicable.
     ///
@@ -34,13 +35,14 @@ final class ServingSize {
 
     /// True for the serving shown by default in search results and log pickers.
     /// Exactly one ServingSize per FoodItem should have isDefault = true.
-    var isDefault: Bool
+    var isDefault: Bool = false
 
     /// Controls display order in serving pickers. Lower = shown first.
-    var sortOrder: Int
+    var sortOrder: Int = 0
 
     // MARK: Relationships
     var foodItem: FoodItem?
+
     @Relationship(deleteRule: .nullify) var foodLogs: [FoodLog] = []
 
     // MARK: Init

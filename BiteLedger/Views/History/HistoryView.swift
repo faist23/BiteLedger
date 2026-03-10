@@ -203,8 +203,8 @@ struct HistoryView: View {
             oldestDescriptor.fetchLimit = 1
             allTimeOldestDate = (try? modelContext.fetch(oldestDescriptor))?.first?.timestamp
 
-            // --- 2-year display window ---
-            let twoYearsAgo = calendar.date(byAdding: .year, value: -2, to: Date()) ?? Date()
+            // --- 2-year display window (start of day to avoid boundary-day miss) ---
+            let twoYearsAgo = calendar.startOfDay(for: calendar.date(byAdding: .year, value: -2, to: Date()) ?? Date())
             let recentDescriptor = FetchDescriptor<FoodLog>(
                 predicate: #Predicate { $0.timestamp >= twoYearsAgo },
                 sortBy: [SortDescriptor(\FoodLog.timestamp, order: .reverse)]
@@ -220,7 +220,7 @@ struct HistoryView: View {
                 var extraDays = 0
                 if let oldestDate = allTimeOldestDate {
                     let oldestDay = calendar.startOfDay(for: oldestDate)
-                    let twoYearsAgoDay = calendar.startOfDay(for: twoYearsAgo)
+                    let twoYearsAgoDay = twoYearsAgo // already startOfDay
                     if oldestDay < twoYearsAgoDay {
                         var checkDay = calendar.date(byAdding: .day, value: -1, to: twoYearsAgoDay)!
                         while checkDay >= oldestDay {
@@ -236,10 +236,18 @@ struct HistoryView: View {
                     }
                 }
 
-                calculatedStreak = streak
+                let totalDays = uniqueDaysInWindow + extraDays
+                // Streak can never logically exceed total unique days logged
+                let validatedStreak = min(streak, totalDays)
+                if validatedStreak != streak, let prefs {
+                    prefs.cachedStreak = validatedStreak
+                    try? modelContext.save()
+                }
+
+                calculatedStreak = validatedStreak
                 allLogs = recentLogs
                 oldestLogDate = allTimeOldestDate
-                totalUniqueDaysAllTime = uniqueDaysInWindow + extraDays
+                totalUniqueDaysAllTime = totalDays
                 isLoading = false
             } catch {
                 print("Error fetching history logs: \(error)")

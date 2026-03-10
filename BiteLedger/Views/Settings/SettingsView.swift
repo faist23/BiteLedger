@@ -24,10 +24,15 @@ struct SettingsView: View {
     @State private var showingCleanupResult = false
     @State private var isDeleting = false
     @State private var deleteProgress = ""
+    @State private var showingBackfillConfirmation = false
+    @State private var backfillResultMessage = ""
+    @State private var showingBackfillResult = false
+    @State private var isBackfilling = false
     @State private var pinnedNutrient: Nutrient?
     @State private var showMacroBalance: Bool = true
     @State private var goals: [String: NutrientGoal] = [:]
     @State private var editingNutrient: Nutrient?
+
     
     var body: some View {
         NavigationStack {
@@ -125,7 +130,18 @@ struct SettingsView: View {
                                 .foregroundStyle(.primary)
                         }
                     }
-                    
+
+                    Button {
+                        showingBackfillConfirmation = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "wand.and.sparkles")
+                                .foregroundStyle(.teal)
+                            Text("Backfill Micronutrients in Logs")
+                                .foregroundStyle(.primary)
+                        }
+                    }
+
                     Button(role: .destructive) {
                         showingDeleteConfirmation = true
                     } label: {
@@ -177,6 +193,38 @@ struct SettingsView: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(cleanupResultMessage)
+            }
+            .alert("Backfill Micronutrients?", isPresented: $showingBackfillConfirmation) {
+                Button("Cancel", role: .cancel) { }
+                Button("Backfill") {
+                    backfillMicronutrients()
+                }
+            } message: {
+                Text("This fills in missing micronutrient values (vitamins, minerals, caffeine) in your food logs using each log's linked food item. Calories, protein, carbs, and fat are never changed. Use this after running the LoseIt enrichment tool.")
+            }
+            .alert("Backfill Complete", isPresented: $showingBackfillResult) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(backfillResultMessage)
+            }
+            .overlay {
+                if isBackfilling {
+                    ZStack {
+                        Color.black.opacity(0.4)
+                            .ignoresSafeArea()
+                        VStack(spacing: 20) {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                                .tint(.white)
+                            Text("Backfilling micronutrients...")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                        }
+                        .padding(40)
+                        .background(Color(UIColor.systemGray6))
+                        .cornerRadius(20)
+                    }
+                }
             }
             .overlay {
                 if isDeleting {
@@ -349,6 +397,80 @@ struct SettingsView: View {
         }
     }
     
+    private func backfillMicronutrients() {
+        isBackfilling = true
+
+        Task {
+            await Task.detached(priority: .userInitiated) {
+                let container = modelContext.container
+                let ctx = ModelContext(container)
+
+                let descriptor = FetchDescriptor<FoodLog>()
+                guard let logs = try? ctx.fetch(descriptor) else {
+                    await MainActor.run {
+                        isBackfilling = false
+                        backfillResultMessage = "Failed to fetch food logs."
+                        showingBackfillResult = true
+                    }
+                    return
+                }
+
+                var updatedCount = 0
+
+                for log in logs {
+                    guard let food = log.foodItem else { continue }
+
+                    // Calculate fresh nutrition from the food item
+                    let n = NutritionCalculator.calculate(
+                        food: food,
+                        serving: log.servingSize ?? food.defaultServing,
+                        quantity: log.quantity
+                    )
+
+                    // Only fill nil fields — never overwrite existing frozen values
+                    var changed = false
+                    if log.fiberAtLogTime == nil,          let v = n.fiber          { log.fiberAtLogTime = v;          changed = true }
+                    if log.sugarAtLogTime == nil,          let v = n.sugar          { log.sugarAtLogTime = v;          changed = true }
+                    if log.saturatedFatAtLogTime == nil,   let v = n.saturatedFat   { log.saturatedFatAtLogTime = v;   changed = true }
+                    if log.transFatAtLogTime == nil,       let v = n.transFat       { log.transFatAtLogTime = v;       changed = true }
+                    if log.monounsaturatedFatAtLogTime == nil, let v = n.monounsaturatedFat { log.monounsaturatedFatAtLogTime = v; changed = true }
+                    if log.polyunsaturatedFatAtLogTime == nil, let v = n.polyunsaturatedFat { log.polyunsaturatedFatAtLogTime = v; changed = true }
+                    if log.sodiumAtLogTime == nil,         let v = n.sodium         { log.sodiumAtLogTime = v;         changed = true }
+                    if log.cholesterolAtLogTime == nil,    let v = n.cholesterol    { log.cholesterolAtLogTime = v;    changed = true }
+                    if log.potassiumAtLogTime == nil,      let v = n.potassium      { log.potassiumAtLogTime = v;      changed = true }
+                    if log.calciumAtLogTime == nil,        let v = n.calcium        { log.calciumAtLogTime = v;        changed = true }
+                    if log.ironAtLogTime == nil,           let v = n.iron           { log.ironAtLogTime = v;           changed = true }
+                    if log.magnesiumAtLogTime == nil,      let v = n.magnesium      { log.magnesiumAtLogTime = v;      changed = true }
+                    if log.zincAtLogTime == nil,           let v = n.zinc           { log.zincAtLogTime = v;           changed = true }
+                    if log.vitaminAAtLogTime == nil,       let v = n.vitaminA       { log.vitaminAAtLogTime = v;       changed = true }
+                    if log.vitaminCAtLogTime == nil,       let v = n.vitaminC       { log.vitaminCAtLogTime = v;       changed = true }
+                    if log.vitaminDAtLogTime == nil,       let v = n.vitaminD       { log.vitaminDAtLogTime = v;       changed = true }
+                    if log.vitaminEAtLogTime == nil,       let v = n.vitaminE       { log.vitaminEAtLogTime = v;       changed = true }
+                    if log.vitaminKAtLogTime == nil,       let v = n.vitaminK       { log.vitaminKAtLogTime = v;       changed = true }
+                    if log.vitaminB6AtLogTime == nil,      let v = n.vitaminB6      { log.vitaminB6AtLogTime = v;      changed = true }
+                    if log.vitaminB12AtLogTime == nil,     let v = n.vitaminB12     { log.vitaminB12AtLogTime = v;     changed = true }
+                    if log.folateAtLogTime == nil,         let v = n.folate         { log.folateAtLogTime = v;         changed = true }
+                    if log.cholineAtLogTime == nil,        let v = n.choline        { log.cholineAtLogTime = v;        changed = true }
+                    if log.caffeineAtLogTime == nil,       let v = n.caffeine       { log.caffeineAtLogTime = v;       changed = true }
+
+                    if changed { updatedCount += 1 }
+                }
+
+                try? ctx.save()
+
+                await MainActor.run {
+                    isBackfilling = false
+                    if updatedCount > 0 {
+                        backfillResultMessage = "Updated micronutrients in \(updatedCount) food logs."
+                    } else {
+                        backfillResultMessage = "No logs needed updating — all micronutrient fields are already populated."
+                    }
+                    showingBackfillResult = true
+                }
+            }.value
+        }
+    }
+
     private func cleanUpDuplicates() {
         var removedCount = 0
         var mergedGroups = 0
