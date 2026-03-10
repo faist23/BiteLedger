@@ -260,6 +260,9 @@ struct TodayView: View {
                 if count > 0 {
                     streak += 1
                     checkDate = calendar.date(byAdding: .day, value: -1, to: checkDate)!
+                } else if checkDate == today {
+                    // Today is in progress — no logs yet doesn't break the streak
+                    checkDate = calendar.date(byAdding: .day, value: -1, to: checkDate)!
                 } else {
                     break
                 }
@@ -373,6 +376,11 @@ struct TodayView: View {
             
             try? modelContext.save()
             loadLogsForSelectedDate()
+            if let prefs = preferences {
+                prefs.streakCachedDate = nil
+                try? modelContext.save()
+            }
+            loadStreak()
         } catch {
             print("Error copying meals: \(error)")
         }
