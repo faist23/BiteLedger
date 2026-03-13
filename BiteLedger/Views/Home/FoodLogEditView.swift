@@ -58,13 +58,18 @@ struct FoodLogEditView: View {
         
         self.foodType = FoodType.infer(from: foodItem.name)
         
-        // Parse serving unit display name once at init
-        // Use default serving's label since baseServingDescription no longer exists
+        // Parse serving unit display name once at init.
+        // Priority: stored unit field → parse label → bare-word parse → "Serving"
         if let defaultServing = foodItem.defaultServing {
-            let parsedResult = ServingSizeParser.parse(defaultServing.label)
-            if let parsed = parsedResult {
-                // Use full display name instead of abbreviation
+            if let storedUnit = defaultServing.unit,
+               let servingUnit = ServingUnit(rawValue: storedUnit),
+               servingUnit != .serving {
+                self.parsedServingUnit = Self.displayNameForServingUnit(servingUnit)
+            } else if let parsed = ServingSizeParser.parse(defaultServing.label),
+                      parsed.unit != .serving {
                 self.parsedServingUnit = Self.displayNameForServingUnit(parsed.unit)
+            } else if let unit = ServingSizeParser.parseUnit(defaultServing.label) {
+                self.parsedServingUnit = Self.displayNameForServingUnit(unit)
             } else {
                 self.parsedServingUnit = "Serving"
             }
@@ -83,8 +88,11 @@ struct FoodLogEditView: View {
 
         if let defaultServing = foodItem.defaultServing, let gramWeight = defaultServing.gramWeight, gramWeight > 0 {
             // Only add .serving if the label isn't parseable to a specific unit
-            let parsed = ServingSizeParser.parse(defaultServing.label)
-            if parsed == nil || parsed?.unit == .serving {
+            let storedUnit = defaultServing.unit.flatMap { ServingUnit(rawValue: $0) }
+            let parsedUnit = ServingSizeParser.parse(defaultServing.label)?.unit
+                          ?? ServingSizeParser.parseUnit(defaultServing.label)
+            let effectiveUnit = storedUnit ?? parsedUnit
+            if effectiveUnit == nil || effectiveUnit == .serving {
                 units.insert(.serving, at: 0)
             }
         }
@@ -105,22 +113,37 @@ struct FoodLogEditView: View {
         let relevantServing = log.servingSize ?? foodItem.defaultServing
         let parsedResult = relevantServing.flatMap { ServingSizeParser.parse($0.label) }
 
+        // Resolve the native unit: stored field > parsed label > bare-word parse.
+        // The stored `unit` field is populated on all records created after schema V2.
+        // Older records fall back to ServingSizeParser.
+        let nativeUnit: ServingUnit?
+        if let storedUnit = relevantServing?.unit,
+           let su = ServingUnit(rawValue: storedUnit),
+           su != .serving {
+            nativeUnit = su
+        } else if let parsed = parsedResult, parsed.unit != .serving {
+            nativeUnit = parsed.unit
+        } else {
+            nativeUnit = ServingSizeParser.parseUnit(relevantServing?.label ?? "")
+        }
+
         // If the serving's native unit isn't covered by food-type rules, add it now.
-        // E.g. a "2 tbsp" serving on a food not classified as peanutButter/honey/oil.
-        if let parsed = parsedResult, parsed.unit != .serving, !units.contains(parsed.unit) {
-            units.insert(parsed.unit, at: 0)
+        if let native = nativeUnit, !units.contains(native) {
+            units.insert(native, at: 0)
         }
 
         self.availableUnits = units
 
         // Determine the display unit and initial amount value.
+        // parsedAmount: from parsed label for "1 tbsp" style labels (amount = 1.0);
+        // defaults to 1.0 for bare-word labels (e.g. "tablespoons") where the stored
+        // `unit` field supplies the unit but the label has no leading number.
         let displayUnit: ServingUnit
         let parsedAmount: Double?
 
-        if let parsed = parsedResult, parsed.unit != .serving {
-            // Serving label parsed to a concrete unit (e.g. "2 tbsp" → .tablespoon, amount 2.0)
-            displayUnit = parsed.unit
-            parsedAmount = parsed.amount
+        if let native = nativeUnit {
+            displayUnit = native
+            parsedAmount = parsedResult?.amount ?? 1.0
         } else if relevantServing != nil {
             // Label didn't parse to a specific unit but a serving exists — show as serving count
             displayUnit = .serving
@@ -173,27 +196,102 @@ struct FoodLogEditView: View {
     /// Three cases:
     ///   .serving         → amountValue IS the count directly
     ///   unit == parsed   → divide by parsedAmount to recover the count
-    ///   other unit       → gram-based conversion via density / gramWeight
+    ///   other unit       → gram-based conversion via gramWeight anchor / density
     private var resolvedQuantity: Double {
         if selectedUnit == .serving {
             return amountValue
         }
 
-        if let serving = effectiveServing,
-           let parsed = ServingSizeParser.parse(serving.label),
-           parsed.unit == selectedUnit,
-           parsed.amount > 0 {
-            return amountValue / parsed.amount
+        if let serving = effectiveServing {
+            let storedUnit = serving.unit.flatMap { ServingUnit(rawValue: $0) }
+            let parsed     = ServingSizeParser.parse(serving.label)
+            // Native unit: stored field wins, then parsed label.
+            let nativeUnit   = storedUnit ?? parsed?.unit
+            let nativeAmount = parsed?.amount ?? 1.0
+
+            if nativeUnit == selectedUnit {
+                // Bare-unit serving: gramWeight ≤ 1 AND amount = 1 means the serving is
+                // literally "1 gram" (or bare "g") — treating it as the unit multiplier
+                // would return amountValue/1 = 60 for 60g input → 60 servings → 9,660 cal.
+                // Fall through to the gram-based section which uses a cross-serving anchor.
+                let isBareUnit = (serving.gramWeight ?? 0) <= 1 && nativeAmount <= 1.0
+                if !isBareUnit && nativeAmount > 0 {
+                    return amountValue / nativeAmount
+                }
+                // isBareUnit == true: skip the label-parse path below and fall through.
+            } else if let parsed, parsed.unit == selectedUnit, parsed.amount > 0 {
+                // Label unit differs from stored unit — trust the parse.
+                return amountValue / parsed.amount
+            }
         }
 
-        // Gram-based fallback (e.g. user switched to Grams or Ounces)
-        let density = ServingUnit.densityFor(foodType: foodType)
-        let grams = selectedUnit.toGrams(amount: amountValue, density: density)
+        // Gram-based fallback.
+        // Use food-specific grams/unit (gramsPerUnit anchors to any serving with real
+        // gramWeight) so that volume units like cups convert correctly for dry goods.
+        let grams = amountValue * gramsPerUnit(selectedUnit)
+
+        // Prefer explicit gramWeight on the effective serving
         if let servingGrams = effectiveServing?.gramWeight, servingGrams > 0 {
             return grams / servingGrams
         }
 
+        // Cross-serving gramWeight anchor: if any other serving on this food has a real
+        // gramWeight (> 1g), use it to convert grams → serving count.
+        // e.g. logged serving is bare "g" (no gramWeight), but food also has "1 cup / 42g".
+        if let refServing = foodItem.servingSizes.first(where: { ($0.gramWeight ?? 0) > 1 }),
+           let refGrams = refServing.gramWeight {
+            return grams / refGrams
+        }
+
+        // gramWeight is nil — compute effective serving grams from the native unit + density.
+        // This handles perServing foods (e.g. LoseIt imports) where gramWeight was never stored
+        // but the unit is known (e.g. "Tablespoon"). Allows cross-unit conversion: tbsp ↔ tsp ↔ cup.
+        if let serving = effectiveServing,
+           let storedUnit = serving.unit,
+           let nativeUnit = ServingUnit(rawValue: storedUnit) {
+            let parsedAmt = ServingSizeParser.parse(serving.label)?.amount ?? 1.0
+            let density = ServingUnit.densityFor(foodType: foodType)
+            let effectiveServingGrams = nativeUnit.toGrams(amount: parsedAmt, density: density)
+            if effectiveServingGrams > 0 {
+                return grams / effectiveServingGrams
+            }
+        }
+
         return amountValue
+    }
+
+    /// Returns grams per 1 of the given unit, using a food-specific gramWeight anchor
+    /// when available (for volume units), otherwise exact mass conversions or generic density.
+    ///
+    /// Example: Life Cereal has "1 cup / 42g". gramsPerUnit(.cup) = 42, gramsPerUnit(.tsp) = 42/48.
+    private func gramsPerUnit(_ unit: ServingUnit) -> Double {
+        // Mass units are always exact.
+        switch unit {
+        case .gram:   return 1.0
+        case .ounce:  return 28.3495
+        case .pound:  return 453.592
+        default: break
+        }
+
+        let density = ServingUnit.densityFor(foodType: foodType)
+
+        // For volume units, anchor to any serving with a real gramWeight.
+        if let refServing = foodItem.servingSizes.first(where: { ($0.gramWeight ?? 0) > 1 }),
+           let refGrams = refServing.gramWeight, refGrams > 1,
+           let refUnitStr = refServing.unit,
+           let refUnit = ServingUnit(rawValue: refUnitStr) {
+            let refAmount = ServingSizeParser.parse(refServing.label)?.amount ?? 1.0
+            let gramsPerRefUnit = refGrams / max(refAmount, 0.01)
+            let genericRefGrams   = refUnit.toGrams(amount: 1.0, density: density)
+            let genericTargetGrams = unit.toGrams(amount: 1.0, density: density)
+            guard genericRefGrams > 0, genericTargetGrams > 0 else {
+                return unit.toGrams(amount: 1.0, density: density)
+            }
+            // Scale food-specific grams/refUnit → grams/targetUnit via volume ratio.
+            return gramsPerRefUnit * (genericTargetGrams / genericRefGrams)
+        }
+
+        return unit.toGrams(amount: 1.0, density: density)
     }
 
     private var totalGrams: Double {
@@ -740,6 +838,9 @@ struct FoodLogEditView: View {
                     commitTextFieldAmount()
                 }
             }
+            .onChange(of: selectedUnit) { oldUnit, newUnit in
+                convertAmount(from: oldUnit, to: newUnit)
+            }
             .navigationTitle("Edit Food")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -921,7 +1022,29 @@ struct FoodLogEditView: View {
         
         showingAmountTextField = false
     }
-    
+
+    /// When the user switches units, convert the displayed amount so the physical
+    /// quantity stays the same. E.g. 3 tbsp → 9 tsp, not 3 tsp; 60g → 1.43 cups for Life Cereal.
+    /// Uses food-specific gramWeight anchor (gramsPerUnit) when available.
+    /// Switching to/from .serving leaves the amount unchanged.
+    private func convertAmount(from oldUnit: ServingUnit, to newUnit: ServingUnit) {
+        guard oldUnit != newUnit,
+              oldUnit != .serving,
+              newUnit != .serving else { return }
+        let oldUnitGrams = gramsPerUnit(oldUnit)
+        guard oldUnitGrams > 0 else { return }
+        let newUnitGrams = gramsPerUnit(newUnit)
+        guard newUnitGrams > 0 else { return }
+        let grams = amountValue * oldUnitGrams
+        let newAmount = grams / newUnitGrams
+        let whole = max(0, Int(newAmount))
+        let fractionalPart = newAmount - Double(whole)
+        wholeNumber = whole
+        fraction = Fraction.allCases.min(by: {
+            abs($0.rawValue - fractionalPart) < abs($1.rawValue - fractionalPart)
+        }) ?? .zero
+    }
+
     private func saveChanges() {
         // Commit the serving and quantity — use the same effectiveServing / resolvedQuantity
         // the live preview used, so what the user sees is exactly what gets saved.

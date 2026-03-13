@@ -818,7 +818,8 @@ struct FoodSearchView: View {
             label: "1 cup",
             gramWeight: 237.0,
             isDefault: true,
-            sortOrder: 0
+            sortOrder: 0,
+            unit: ServingUnit.cup.rawValue
         )
         cupServing.foodItem = waterItem
         modelContext.insert(cupServing)

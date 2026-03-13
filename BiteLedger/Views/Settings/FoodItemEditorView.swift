@@ -704,11 +704,15 @@ struct FoodItemEditorView: View {
             return
         }
         
+        let portionUnit = ServingSizeParser.parse(newPortionLabel).flatMap {
+            $0.unit == .serving ? nil : $0.unit.rawValue
+        } ?? ServingSizeParser.parseUnit(newPortionLabel)?.rawValue
         let newServingSize = ServingSize(
             label: newPortionLabel,
             gramWeight: grams,
             isDefault: false,
-            sortOrder: foodItem.servingSizes.count
+            sortOrder: foodItem.servingSizes.count,
+            unit: portionUnit
         )
         newServingSize.foodItem = foodItem
         
@@ -854,16 +858,46 @@ struct FoodItemEditorView: View {
 
         // Update or create the default serving
         if let defaultServing = validFood.defaultServing {
-            // Update existing default serving
+            let oldGramWeight = defaultServing.gramWeight
+            let oldUnit = defaultServing.unit.flatMap { ServingUnit(rawValue: $0) }
+
+            let newGramWeight = gramsPerServing.isEmpty ? nil : Double(gramsPerServing)
             defaultServing.label = servingDescription
-            defaultServing.gramWeight = gramsPerServing.isEmpty ? nil : Double(gramsPerServing)
+            defaultServing.gramWeight = newGramWeight
+
+            // Always keep unit in sync with the label so resolvedQuantity stays correct.
+            let newUnit = ServingSizeParser.parse(servingDescription).flatMap {
+                $0.unit == .serving ? nil : $0.unit.rawValue
+            } ?? ServingSizeParser.parseUnit(servingDescription)?.rawValue
+            defaultServing.unit = newUnit
+
+            // When the old serving was a bare-gram serving (unit=gram, gramWeight≤1 or nil)
+            // and we're now assigning a real gramWeight, any FoodLog that references it stored
+            // quantity as grams (1 serving = 1g). Rescale to new serving count so calorie
+            // math remains accurate.
+            let wasGramPerServing = (oldUnit == .gram) && ((oldGramWeight ?? 0) <= 1)
+            if wasGramPerServing, let newGW = newGramWeight, newGW > 1 {
+                let servingId = defaultServing.id
+                let descriptor = FetchDescriptor<FoodLog>(
+                    predicate: #Predicate<FoodLog> { $0.servingSize?.id == servingId }
+                )
+                if let logs = try? modelContext.fetch(descriptor) {
+                    for log in logs {
+                        log.quantity = log.quantity / newGW
+                    }
+                }
+            }
         } else {
             // Create new default serving
+            let defaultUnit = ServingSizeParser.parse(servingDescription).flatMap {
+                $0.unit == .serving ? nil : $0.unit.rawValue
+            } ?? ServingSizeParser.parseUnit(servingDescription)?.rawValue
             let defaultServing = ServingSize(
                 label: servingDescription,
                 gramWeight: gramsPerServing.isEmpty ? nil : Double(gramsPerServing),
                 isDefault: true,
-                sortOrder: 0
+                sortOrder: 0,
+                unit: defaultUnit
             )
             defaultServing.foodItem = validFood
             modelContext.insert(defaultServing)

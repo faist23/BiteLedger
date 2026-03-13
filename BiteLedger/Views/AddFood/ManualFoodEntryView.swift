@@ -562,38 +562,47 @@ struct ManualFoodEntryView: View {
         )
         
         // Create default base serving
+        let baseServingUnit = ServingSizeParser.parse(servingDescription).flatMap {
+            $0.unit == .serving ? nil : $0.unit.rawValue
+        } ?? ServingSizeParser.parseUnit(servingDescription)?.rawValue
         let baseServing = ServingSize(
             label: servingDescription,
             gramWeight: servingWeight.isEmpty ? nil : actualGramsPerServing,
             isDefault: true,
-            sortOrder: 0
+            sortOrder: 0,
+            unit: baseServingUnit
         )
         baseServing.foodItem = foodItem
-        
+
         // Note: servingSizes will be created when foodItem is inserted by the callback handler
         // We'll pass them along in a temporary array for now
         var additionalServings: [ServingSize] = [baseServing]
-        
+
         // Add 100g serving if we have gram weight
         if !servingWeight.isEmpty {
             let hundredGramServing = ServingSize(
                 label: "100g",
                 gramWeight: 100.0,
                 isDefault: false,
-                sortOrder: 1
+                sortOrder: 1,
+                unit: ServingUnit.gram.rawValue
             )
             hundredGramServing.foodItem = foodItem
             additionalServings.append(hundredGramServing)
         }
-        
+
         // Add additional portion sizes if any were defined
         if !portions.isEmpty {
             for (index, portion) in portions.enumerated() {
+                let portionUnit = ServingSizeParser.parse(portion.name).flatMap {
+                    $0.unit == .serving ? nil : $0.unit.rawValue
+                } ?? ServingSizeParser.parseUnit(portion.name)?.rawValue
                 let servingSize = ServingSize(
                     label: portion.name,
                     gramWeight: portion.grams,
                     isDefault: false,
-                    sortOrder: additionalServings.count + index
+                    sortOrder: additionalServings.count + index,
+                    unit: portionUnit
                 )
                 servingSize.foodItem = foodItem
                 additionalServings.append(servingSize)

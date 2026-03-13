@@ -114,7 +114,7 @@ struct CSVExporter {
     // MARK: - Servings CSV
 
     static func exportServings(_ servings: [ServingSize]) -> String {
-        let headers = ["id", "foodId", "label", "gramWeight", "isDefault", "sortOrder", "dateAdded"]
+        let headers = ["id", "foodId", "label", "gramWeight", "isDefault", "sortOrder", "dateAdded", "unit"]
         var rows: [[String]] = [headers]
 
         for serving in servings {
@@ -126,7 +126,8 @@ struct CSVExporter {
                 optStr(serving.gramWeight),
                 String(serving.isDefault),
                 String(serving.sortOrder),
-                ISO8601DateFormatter().string(from: serving.dateAdded)
+                ISO8601DateFormatter().string(from: serving.dateAdded),
+                serving.unit ?? ""
             ]
             rows.append(row)
         }

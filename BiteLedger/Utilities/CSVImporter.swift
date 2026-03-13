@@ -219,12 +219,23 @@ struct CSVImporter {
                     )
                     context.insert(food)
 
-                    let servingLabel = units.isEmpty ? "serving" : units
+                    let (servingLabel, servingUnit): (String, String?)
+                    if units.isEmpty {
+                        servingLabel = "1 serving"
+                        servingUnit = ServingUnit.serving.rawValue
+                    } else if let knownUnit = ServingSizeParser.parseUnit(units) {
+                        servingLabel = "1 \(knownUnit.abbreviation)"
+                        servingUnit = knownUnit.rawValue
+                    } else {
+                        servingLabel = "1 \(units)"
+                        servingUnit = nil
+                    }
                     let serving = ServingSize(
                         label: servingLabel,
                         gramWeight: nil,
                         isDefault: true,
-                        sortOrder: 0
+                        sortOrder: 0,
+                        unit: servingUnit
                     )
                     serving.foodItem = food
                     context.insert(serving)
@@ -433,12 +444,23 @@ struct CSVImporter {
                         food.caffeine   = manual.caffeine
                     }
 
-                    let servingLabel = units.isEmpty ? "serving" : units
+                    let (servingLabel, servingUnit): (String, String?)
+                    if units.isEmpty {
+                        servingLabel = "1 serving"
+                        servingUnit = ServingUnit.serving.rawValue
+                    } else if let knownUnit = ServingSizeParser.parseUnit(units) {
+                        servingLabel = "1 \(knownUnit.abbreviation)"
+                        servingUnit = knownUnit.rawValue
+                    } else {
+                        servingLabel = "1 \(units)"
+                        servingUnit = nil
+                    }
                     let serving = ServingSize(
                         label: servingLabel,
                         gramWeight: nil,
                         isDefault: true,
-                        sortOrder: 0
+                        sortOrder: 0,
+                        unit: servingUnit
                     )
                     serving.foodItem = food
                     context.insert(serving)
@@ -605,6 +627,7 @@ struct CSVImporter {
         }
 
         let gramIdx = headers.firstIndex(of: "gramweight")
+        let unitIdx = headers.firstIndex(of: "unit")
         var servingMap: [UUID: ServingSize] = [:]
 
         for row in rows.dropFirst() {
@@ -615,12 +638,14 @@ struct CSVImporter {
                 let food = foodMap[foodId]
             else { continue }
 
+            let storedUnit = unitIdx.flatMap { row[safe: $0] }.flatMap { $0.isEmpty ? nil : $0 }
             let serving = ServingSize(
                 id: id,
                 label: row[labelIdx],
                 gramWeight: gramIdx.flatMap { Double(row[safe: $0] ?? "") },
                 isDefault: row[defaultIdx].lowercased() == "true",
-                sortOrder: Int(row[orderIdx]) ?? 0
+                sortOrder: Int(row[orderIdx]) ?? 0,
+                unit: storedUnit
             )
             serving.foodItem = food
             context.insert(serving)
@@ -954,7 +979,8 @@ struct CSVImporter {
                     label: parsedUnit,
                     gramWeight: nil, // We don't know gram weights from CSV
                     isDefault: food.servingSizes.isEmpty, // First one is default
-                    sortOrder: food.servingSizes.count
+                    sortOrder: food.servingSizes.count,
+                    unit: ServingSizeParser.parseUnit(parsedUnit)?.rawValue
                 )
                 servingForThisLog.foodItem = food
                 context.insert(servingForThisLog)

@@ -208,4 +208,22 @@ struct ServingSizeParser {
         
         return (amount, unit, gramsValue)
     }
+
+    /// Parses a bare unit word with no leading number (e.g. `"tablespoons"`, `"cups"`, `"oz"`).
+    /// Used as a fallback when `parse()` returns `nil` because the string has no quantity prefix.
+    /// Returns `nil` for opaque words (e.g. `"caplet"`, `"sandwich"`) that don't map to a known unit.
+    static func parseUnit(_ raw: String?) -> ServingUnit? {
+        guard let str = raw?.lowercased().trimmingCharacters(in: .whitespaces),
+              !str.isEmpty else { return nil }
+        if str.contains("cup")                                      { return .cup }
+        if str.contains("fl oz") || str.contains("fluid ounce")    { return .fluidOunce }
+        if str.contains("tbsp") || str.contains("tablespoon") || str.contains("thsp") { return .tablespoon }
+        if str.contains("tsp")  || str.contains("teaspoon")        { return .teaspoon }
+        if str.contains("ml") || str.contains("milliliter")        { return .milliliter }
+        if str == "l" || str == "liter" || str == "liters"         { return .liter }
+        if str.contains("lb") || str.contains("pound")             { return .pound }
+        if str.contains("oz") && !str.contains("fl")               { return .ounce }
+        if str == "g" || str == "gram" || str == "grams"           { return .gram }
+        return nil
+    }
 }

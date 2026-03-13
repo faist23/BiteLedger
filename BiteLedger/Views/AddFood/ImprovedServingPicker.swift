@@ -881,6 +881,7 @@ struct ImprovedServingPicker: View {
 
             if let existingByBarcode = try? modelContext.fetch(descriptor).first {
                 print("✅ Found existing FoodItem by barcode: \(existingByBarcode.name)")
+                print("🔬 nutritionMode=\(existingByBarcode.nutritionMode), calories=\(existingByBarcode.calories), resolvedServingCount=\(resolvedServingCount), defaultServing gramWeight=\(existingByBarcode.defaultServing?.gramWeight as Any)")
                 foodItem = existingByBarcode
                 // Backfill any micronutrient fields that are nil (e.g. food was saved before
                 // per-serving micronutrient support was added to FatSecretService).
@@ -896,6 +897,22 @@ struct ImprovedServingPicker: View {
                 if existingByBarcode.iron         == nil { existingByBarcode.iron         = n?.iron100g.map         { $0.value * 1000.0 * reuseScale } ?? n?.ironServing.map       { $0.value } }
                 if existingByBarcode.vitaminA     == nil { existingByBarcode.vitaminA     = n?.vitaminA100g.map     { $0.value * 1_000_000.0 * reuseScale } ?? n?.vitaminAServing.map { $0.value } }
                 if existingByBarcode.vitaminC     == nil { existingByBarcode.vitaminC     = n?.vitaminC100g.map     { $0.value * 1000.0 * reuseScale } ?? n?.vitaminCServing.map   { $0.value } }
+
+                // Repair FoodItems whose core nutrition was stored incorrectly by the
+                // old double-scaling bug (perServing food stored as 60×0.26=15.6 instead
+                // of 60). If the API has authoritative per-serving data and it disagrees
+                // with what's stored, overwrite the core macros. This is safe for
+                // barcode-scanned foods which were never manually edited.
+                if !product.code.hasPrefix("usda_"),
+                   let servingCal = n?.energyKcalServing?.value, servingCal > 0,
+                   existingByBarcode.nutritionMode == .perServing,
+                   abs(existingByBarcode.calories - servingCal) > 0.5 {
+                    print("🔧 Repairing FoodItem core nutrition: was \(existingByBarcode.calories) cal, API says \(servingCal)")
+                    existingByBarcode.calories = servingCal
+                    existingByBarcode.protein = n?.proteinsServing?.value ?? existingByBarcode.protein
+                    existingByBarcode.carbs = n?.carbohydratesServing?.value ?? existingByBarcode.carbs
+                    existingByBarcode.fat = n?.fatServing?.value ?? existingByBarcode.fat
+                }
             } else {
                 // Create new FoodItem with serving-based nutrition
                 // Convert API's per-100g or per-serving nutrition to base serving nutrition
@@ -927,17 +944,29 @@ struct ImprovedServingPicker: View {
                 let perServingNutrition: (calories: Double, protein: Double, carbs: Double, fat: Double)
 
                 if let baseGrams = baseServingGrams, baseGrams > 0 {
-                    // Convert per-100g to per-serving using gram weight
-                    let servingMultiplier = baseGrams / 100.0
-
                     if let nutriments = product.nutriments {
-                        let nutritionFacts = nutriments.toNutritionFacts(servingMultiplier: 1.0)
-                        perServingNutrition = (
-                            calories: nutritionFacts.caloriesPer100g * servingMultiplier,
-                            protein: nutritionFacts.proteinPer100g * servingMultiplier,
-                            carbs: nutritionFacts.carbsPer100g * servingMultiplier,
-                            fat: nutritionFacts.fatPer100g * servingMultiplier
-                        )
+                        let hasServingData = nutriments.energyKcalServing?.value ?? 0 > 0
+                        if hasServingData {
+                            // Product has per-serving nutrition — use it directly.
+                            // Do NOT multiply by servingMultiplier: the API already gives
+                            // calories/protein/etc. for one serving.
+                            perServingNutrition = (
+                                calories: nutriments.energyKcalServing?.value ?? 0,
+                                protein: nutriments.proteinsServing?.value ?? 0,
+                                carbs: nutriments.carbohydratesServing?.value ?? 0,
+                                fat: nutriments.fatServing?.value ?? 0
+                            )
+                        } else {
+                            // Only per-100g data — scale to this serving's gram weight.
+                            let servingMultiplier = baseGrams / 100.0
+                            let nutritionFacts = nutriments.toNutritionFacts(servingMultiplier: 1.0)
+                            perServingNutrition = (
+                                calories: nutritionFacts.caloriesPer100g * servingMultiplier,
+                                protein: nutritionFacts.proteinPer100g * servingMultiplier,
+                                carbs: nutritionFacts.carbsPer100g * servingMultiplier,
+                                fat: nutritionFacts.fatPer100g * servingMultiplier
+                            )
+                        }
                     } else {
                         perServingNutrition = (0, 0, 0, 0)
                     }
@@ -1005,11 +1034,15 @@ struct ImprovedServingPicker: View {
                 modelContext.insert(foodItem)
 
                 // Create default serving
+                let defaultServingUnit = ServingSizeParser.parse(baseServingDesc).flatMap {
+                    $0.unit == .serving ? nil : $0.unit.rawValue
+                }
                 let defaultServing = ServingSize(
                     label: baseServingDesc,
                     gramWeight: baseServingGrams,
                     isDefault: true,
-                    sortOrder: 0
+                    sortOrder: 0,
+                    unit: defaultServingUnit
                 )
                 defaultServing.foodItem = foodItem
                 modelContext.insert(defaultServing)
@@ -1018,11 +1051,16 @@ struct ImprovedServingPicker: View {
                 // If product has USDA portions, create ServingSize entries for each
                 if let productPortions = product.portions {
                     for (index, portion) in productPortions.enumerated() {
+                        let portionLabel = "\(portion.amount) \(portion.modifier)"
+                        let portionUnit = ServingSizeParser.parse(portionLabel).flatMap {
+                            $0.unit == .serving ? nil : $0.unit.rawValue
+                        }
                         let servingSize = ServingSize(
-                            label: "\(portion.amount) \(portion.modifier)",
+                            label: portionLabel,
                             gramWeight: portion.gramWeight,
                             isDefault: false,
-                            sortOrder: index + 1
+                            sortOrder: index + 1,
+                            unit: portionUnit
                         )
                         servingSize.foodItem = foodItem
                         modelContext.insert(servingSize)

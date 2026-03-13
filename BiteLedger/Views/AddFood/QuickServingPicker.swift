@@ -261,11 +261,15 @@ struct QuickServingPicker: View {
                 servingGrams = 100.0
             }
 
+            let defaultServingUnit = ServingSizeParser.parse(servingLabel).flatMap {
+                $0.unit == .serving ? nil : $0.unit.rawValue
+            }
             let defaultServing = ServingSize(
                 label: servingLabel,
                 gramWeight: servingGrams,
                 isDefault: true,
-                sortOrder: 0
+                sortOrder: 0,
+                unit: defaultServingUnit
             )
             defaultServing.foodItem = foodItem
             modelContext.insert(defaultServing)

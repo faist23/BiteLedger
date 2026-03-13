@@ -231,11 +231,15 @@ struct CompleteDatabaseImporter {
                 // New format just stores gramWeight directly
                 let calculatedGrams = (baseMultiplier * 100.0) // Since we're using perServing mode now
                 
+                let portionUnit = ServingSizeParser.parse(portionName).flatMap {
+                    $0.unit == .serving ? nil : $0.unit.rawValue
+                } ?? ServingSizeParser.parseUnit(portionName)?.rawValue
                 let serving = ServingSize(
                     label: portionName,
                     gramWeight: calculatedGrams > 0 ? calculatedGrams : nil,
                     isDefault: isDefault,
-                    sortOrder: imported
+                    sortOrder: imported,
+                    unit: portionUnit
                 )
                 serving.foodItem = food
 

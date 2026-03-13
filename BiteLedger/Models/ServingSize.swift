@@ -40,6 +40,11 @@ final class ServingSize {
     /// Controls display order in serving pickers. Lower = shown first.
     var sortOrder: Int = 0
 
+    /// The `ServingUnit.rawValue` for this serving, stored at creation time.
+    /// Populated on all new records. `nil` for records created before schema V2
+    /// (use `ServingSizeParser` on `label` as a fallback when `nil`).
+    var unit: String? = nil
+
     // MARK: Relationships
     var foodItem: FoodItem?
 
@@ -52,7 +57,8 @@ final class ServingSize {
         gramWeight: Double? = nil,
         isDefault: Bool = false,
         sortOrder: Int = 0,
-        dateAdded: Date = Date()
+        dateAdded: Date = Date(),
+        unit: String? = nil
     ) {
         self.id = id
         self.label = label
@@ -60,6 +66,7 @@ final class ServingSize {
         self.isDefault = isDefault
         self.sortOrder = sortOrder
         self.dateAdded = dateAdded
+        self.unit = unit
     }
 
     // MARK: Computed

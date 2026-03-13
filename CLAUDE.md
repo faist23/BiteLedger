@@ -43,6 +43,7 @@ These rules are the core architectural invariants. Violating them breaks data in
 - `gramWeight` is `nil` for perServing foods and for dimensionless servings (sandwich, slice)
 - `gramWeight` is **never estimated** — if unknown, store `nil`
 - No multipliers stored anywhere — all math is done at calculation time
+- `unit: String?` (planned — see Schema Migration Policy) — the unit name stored explicitly at creation time so views never parse it back out of `label`. All new creation paths (manual entry, USDA, FatSecret, LoseIt import, OpenFoodFacts) must populate this when the unit is known. `ServingSizeParser` remains as a fallback for records where `unit` is `nil`.
 
 ### FoodLog Nutrition is Frozen at Log Time
 - `*AtLogTime` fields are set **once** by `FoodLog.create()` and **never recalculated**
@@ -66,7 +67,19 @@ Relationships:
 - `FoodItem` → `FoodLog[]` (nullify on delete — logs survive food deletion)
 - `ServingSize` → `FoodLog[]` (nullify on delete)
 
-Schema mismatches are handled in `BiteLedgerApp.swift` by deleting and recreating the store (data loss). Use CSV export before schema changes.
+### Schema Migration Policy (Critical — Read Before Any Schema Change)
+
+**Current state:** `BiteLedgerApp.swift` handles schema mismatches by deleting and recreating the store (data loss). This is a developer-only workaround acceptable while there are zero external users. It must be replaced with proper versioned migrations before any external users are onboarded.
+
+**Required approach for all future schema changes:**
+- Use SwiftData `VersionedSchema` and `SchemaMigrationPlan` — never delete and recreate the store
+- Every schema change requires a new schema version and a corresponding migration stage
+- Migrations must be non-destructive: add nullable fields, migrate data forward, never drop columns with live data
+- Always export via CSV before any schema change during active development (developer safety net, not a user migration strategy)
+
+**Planned schema changes (implement before first external user):**
+- Add `unit: String?` to `ServingSize` — stores the parsed unit at creation time so views never have to reverse-engineer it from the label string. Eliminates the `ServingSizeParser` dependency in `FoodLogEditView` and prevents the "Serving" display bug caused by unparseable labels from LoseIt and other imports. Old records default to `nil` and fall back to parser.
+- Replace the delete-and-recreate mismatch handler in `BiteLedgerApp.swift` with a versioned migration plan covering all schema versions that have ever existed.
 
 ## Food Data Sources
 
