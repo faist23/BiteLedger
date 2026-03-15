@@ -803,7 +803,7 @@ struct FoodSearchView: View {
             brand: nil,
             barcode: nil,
             source: "Quick Add",
-            nutritionMode: .perServing,
+            nutritionMode: .per100g,
             calories: 0,
             protein: 0,
             carbs: 0,

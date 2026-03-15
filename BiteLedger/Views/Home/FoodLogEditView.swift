@@ -11,7 +11,8 @@ import SwiftData
 /// Edit an existing food log entry's serving size
 struct FoodLogEditView: View {
     @Environment(\.dismiss) private var dismiss
-    
+    @Environment(\.modelContext) private var modelContext
+
     let log: FoodLog
     let foodItem: FoodItem
     let onSave: (FoodLog) -> Void
@@ -23,6 +24,9 @@ struct FoodLogEditView: View {
     @State private var selectedPortion: ServingSize?
     @State private var showingAmountTextField = false
     @State private var amountTextFieldValue: String = ""
+    /// Canonical unit→gram map loaded once from the CanonicalFood linked to this food.
+    /// Used as a priority lookup in gramsPerUnit() before the generic density table.
+    @State private var canonicalGramsPerUnit: [String: Double] = [:]
     
     private let foodType: FoodType
     private let parsedServingUnit: String
@@ -154,13 +158,23 @@ struct FoodLogEditView: View {
             displayUnit = hasServingGrams ? .serving : .gram
             parsedAmount = nil
         }
-        _selectedUnit = State(initialValue: displayUnit)
+        // Phase 4: prefer loggedUnit (stored display unit) over the parsed-from-label derivation.
+        let initialUnit: ServingUnit
+        if let loggedUnitStr = log.loggedUnit,
+           let loggedSU = ServingUnit(rawValue: loggedUnitStr),
+           units.contains(loggedSU) {
+            initialUnit = loggedSU
+        } else {
+            initialUnit = displayUnit
+        }
+        _selectedUnit = State(initialValue: initialUnit)
 
-        // Convert log.quantity (always in serving-count units) to the display unit.
-        // resolvedQuantity performs the inverse: displayAmount / parsedAmount → serving count.
-        // So: displayAmount = log.quantity × parsedAmount  ↔  quantity = displayAmount / parsedAmount
+        // Phase 4: prefer loggedAmount (display amount the user entered) over the
+        // quantity×parsedAmount back-computation used before gramAmount was stored.
         let currentAmount: Double
-        if let parsedAmount, parsedAmount > 0, displayUnit != .serving {
+        if let loggedAmount = log.loggedAmount, loggedAmount > 0 {
+            currentAmount = loggedAmount
+        } else if let parsedAmount, parsedAmount > 0, displayUnit != .serving {
             currentAmount = log.quantity * parsedAmount
         } else {
             currentAmount = log.quantity
@@ -273,6 +287,12 @@ struct FoodLogEditView: View {
         default: break
         }
 
+        // Canonical food data beats the generic density table for known foods.
+        // e.g. Peanut Butter → 1 tbsp = 16g, not the generic ~15g estimate.
+        if let canonicalGrams = canonicalGramsPerUnit[unit.rawValue.lowercased()] {
+            return canonicalGrams
+        }
+
         let density = ServingUnit.densityFor(foodType: foodType)
 
         // For volume units, anchor to any serving with a real gramWeight.
@@ -312,20 +332,8 @@ struct FoodLogEditView: View {
     }
 
     private var calculatedNutrition: NutritionCalculator.Result {
-        // per100g food with no gram weight anywhere — synthesise a temp serving from the
-        // total gram amount so NutritionCalculator can scale correctly.
-        if foodItem.nutritionMode == .per100g, effectiveServing?.gramWeight == nil {
-            let grams = totalGrams
-            guard grams > 0 else { return .zero }
-            let tempServing = ServingSize(label: "\(Int(grams))g", gramWeight: grams,
-                                         isDefault: false, sortOrder: 0)
-            return NutritionCalculator.calculate(food: foodItem, serving: tempServing, quantity: 1.0)
-        }
-        return NutritionCalculator.calculate(
-            food: foodItem,
-            serving: effectiveServing,
-            quantity: resolvedQuantity
-        )
+        // Phase 4: all foods are per100g after migration. Single formula: (gramAmount/100) × nutrient.
+        NutritionCalculator.calculate(food: foodItem, gramAmount: totalGrams)
     }
     
     private var nutritionLabel: some View {
@@ -870,6 +878,19 @@ struct FoodLogEditView: View {
             .sheet(isPresented: $showingNutritionEditor) {
                 NutritionEditorView(foodItem: foodItem, referenceQuantity: resolvedQuantity)
             }
+            .task {
+                // Load canonical unit→gram data once so gramsPerUnit() has food-specific
+                // values (e.g. Peanut Butter: 1 tbsp = 16g rather than generic 15g).
+                guard let canonicalID = foodItem.canonicalFoodID else { return }
+                guard let canonical = try? modelContext.fetch(
+                    FetchDescriptor<CanonicalFood>(predicate: #Predicate { $0.id == canonicalID })
+                ).first else { return }
+                var map: [String: Double] = [:]
+                for conv in canonical.servingConversions {
+                    map[conv.unit.lowercased()] = conv.gramsPerUnit
+                }
+                canonicalGramsPerUnit = map
+            }
         }
     }
     
@@ -1046,17 +1067,23 @@ struct FoodLogEditView: View {
     }
 
     private func saveChanges() {
-        // Commit the serving and quantity — use the same effectiveServing / resolvedQuantity
-        // the live preview used, so what the user sees is exactly what gets saved.
-        let serving = effectiveServing
-        log.servingSize = serving
-        log.quantity = resolvedQuantity
+        // Capture gram total before serving alignment (grams are invariant across unit switches).
+        let gramsConsumed = totalGrams
 
-        let nutrition = NutritionCalculator.calculate(
-            food: foodItem,
-            serving: serving,
-            quantity: resolvedQuantity
-        )
+        // When the user's selected unit differs from the effective serving's native unit,
+        // switch to a serving that matches the selected unit so the food log row displays
+        // the unit the user chose (e.g. "60 g" or "8 fl oz") rather than reverting to the
+        // original unit (e.g. "1.4 cup").
+        let (serving, finalQuantity) = unitAlignedServingAndQuantity()
+        log.servingSize = serving
+        log.quantity = finalQuantity
+
+        // Phase 4: store canonical grams + display values for the new schema.
+        log.gramAmount = gramsConsumed
+        log.loggedAmount = amountValue
+        log.loggedUnit = selectedUnit.rawValue
+
+        let nutrition = NutritionCalculator.calculate(food: foodItem, gramAmount: gramsConsumed)
         
         // Update all frozen nutrition values
         log.caloriesAtLogTime = nutrition.calories
@@ -1089,6 +1116,63 @@ struct FoodLogEditView: View {
         
         onSave(log)
         dismiss()
+    }
+
+    /// Returns (serving, quantity) aligned to the user's selected display unit.
+    ///
+    /// For per100g foods, switching units is fully supported: we find or create a serving
+    /// whose gramWeight matches the selected unit so NutritionCalculator's per100g path
+    /// (`(gramWeight/100) × quantity × caloriesPer100g`) stays accurate.
+    ///
+    /// For perServing foods, NutritionCalculator ignores gramWeight and multiplies
+    /// `quantity × caloriesPerServing` directly. Switching servings would produce
+    /// wildly wrong calories (e.g. 9,600 cal for 60g), so we always keep the
+    /// original serving + resolvedQuantity for perServing foods.
+    private func unitAlignedServingAndQuantity() -> (ServingSize?, Double) {
+        // .serving mode: quantity is already the count — keep as-is.
+        if selectedUnit == .serving {
+            return (effectiveServing, resolvedQuantity)
+        }
+
+        // Phase 4: all foods are per100g after migration — no perServing guard needed.
+
+        // Determine native unit of the effective serving.
+        let effectiveNative: ServingUnit? = effectiveServing.flatMap { s in
+            s.unit.flatMap { ServingUnit(rawValue: $0) }
+                ?? ServingSizeParser.parse(s.label)?.unit
+        }
+
+        // No unit change — existing path.
+        if effectiveNative == selectedUnit {
+            return (effectiveServing, resolvedQuantity)
+        }
+
+        // Unit changed: find an existing serving on this food whose native unit matches.
+        // Use it so we don't create duplicate servings.
+        if let match = foodItem.servingSizes.first(where: { s in
+            let u = s.unit.flatMap { ServingUnit(rawValue: $0) }
+                        ?? ServingSizeParser.parse(s.label)?.unit
+            return u == selectedUnit && (s.gramWeight ?? 0) > 0
+        }) {
+            // Re-derive quantity: totalGrams ÷ this serving's gramWeight.
+            let grams = amountValue * gramsPerUnit(selectedUnit)
+            let qty = grams / match.gramWeight!
+            return (match, qty)
+        }
+
+        // No match — create a minimal unit serving so the log row shows the chosen unit.
+        // gramWeight is food-specific (e.g. 30 g/fl oz for almond milk, 1 g/gram always).
+        // quantity = amountValue so NutritionCalculator gets:
+        //   (gramWeight/100) × amountValue × caloriesPer100g  (per100g path, correct ✓)
+        let gw = gramsPerUnit(selectedUnit)
+        let newServing = ServingSize(
+            label: selectedUnit.abbreviation,
+            gramWeight: gw > 0 ? gw : nil,
+            unit: selectedUnit.rawValue
+        )
+        newServing.foodItem = foodItem
+        modelContext.insert(newServing)
+        return (newServing, amountValue)
     }
 }
 

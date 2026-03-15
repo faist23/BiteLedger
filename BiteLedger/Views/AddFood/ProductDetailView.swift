@@ -309,11 +309,16 @@ struct ProductDetailView: View {
                 servingGrams = 100.0
             }
             
+            let servingUnit = ServingSizeParser.parse(servingLabel).flatMap { parsed in
+                parsed.unit == .serving ? nil : parsed.unit.rawValue
+            } ?? ServingSizeParser.parseUnit(servingLabel)?.rawValue
+
             let defaultServing = ServingSize(
                 label: servingLabel,
                 gramWeight: servingGrams,
                 isDefault: true,
-                sortOrder: 0
+                sortOrder: 0,
+                unit: servingUnit
             )
             defaultServing.foodItem = foodItem
             modelContext.insert(defaultServing)

@@ -102,6 +102,12 @@ struct TodayView: View {
                 // (e.g., when copying from an existing log, the FoodItem already exists)
                 if addedItem.foodItem.modelContext == nil {
                     modelContext.insert(addedItem.foodItem)
+                    // Link to canonical food for authoritative unit→gram conversions.
+                    if addedItem.foodItem.canonicalFoodID == nil {
+                        addedItem.foodItem.canonicalFoodID = CanonicalFoodMatcher.match(
+                            foodName: addedItem.foodItem.name, context: modelContext
+                        )?.id
+                    }
                     try? modelContext.save()
                 }
 
@@ -110,7 +116,9 @@ struct TodayView: View {
                     quantity: addedItem.quantity,
                     food: addedItem.foodItem,
                     serving: addedItem.servingSize,
-                    timestamp: timestamp
+                    timestamp: timestamp,
+                    loggedAmount: addedItem.loggedAmount,
+                    loggedUnit: addedItem.loggedUnit
                 )
 
                 modelContext.insert(foodLog)

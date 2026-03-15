@@ -83,13 +83,17 @@ class UnifiedFoodSearchService {
         
         print("📊 Filtered \\(allResults.count) results down to \\(validResults.count) with valid serving info")
 
-        // If all failed, throw an error
-        if validResults.isEmpty {
+        // Only throw if every database call failed and we have nothing at all.
+        // If the serving-size filter removed everything (common for basic cooking
+        // ingredients like "salt"), fall back to the unfiltered results so the
+        // user can still find and assign the food.
+        if allResults.isEmpty {
             throw UnifiedSearchError.noResults
         }
+        let finalResults = validResults.isEmpty ? allResults : validResults
 
         // Sort by relevance - products with search terms in name or brand rank higher
-        let sortedResults = validResults.sorted { product1, product2 in
+        let sortedResults = finalResults.sorted { product1, product2 in
             let name1 = product1.productName?.lowercased() ?? ""
             let name2 = product2.productName?.lowercased() ?? ""
             let brand1 = product1.brands?.lowercased() ?? ""

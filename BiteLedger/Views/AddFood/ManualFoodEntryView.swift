@@ -526,7 +526,7 @@ struct ManualFoodEntryView: View {
             return val
         }
 
-        // Store nutrition values per serving (as entered)
+        // Store nutrition values — will be normalized to per-100g below
         let foodItem = FoodItem(
             name: foodName,
             brand: brand.isEmpty ? nil : brand,
@@ -561,13 +561,18 @@ struct ManualFoodEntryView: View {
             caffeine: parseOptional(caffeine)
         )
         
-        // Create default base serving
+        // Normalize to per-100g. When no gram weight provided: 100g nominal (factor = 1.0).
+        let effectiveGrams: Double? = servingWeight.isEmpty ? nil : actualGramsPerServing
+        foodItem.normalizeToPerHundredGrams(gramWeightPerServing: effectiveGrams)
+
+        // Create default base serving — always provide gramWeight so NutritionCalculator
+        // has a concrete gram anchor. Use actual if known, 100g nominal otherwise.
         let baseServingUnit = ServingSizeParser.parse(servingDescription).flatMap {
             $0.unit == .serving ? nil : $0.unit.rawValue
         } ?? ServingSizeParser.parseUnit(servingDescription)?.rawValue
         let baseServing = ServingSize(
             label: servingDescription,
-            gramWeight: servingWeight.isEmpty ? nil : actualGramsPerServing,
+            gramWeight: effectiveGrams ?? 100.0,
             isDefault: true,
             sortOrder: 0,
             unit: baseServingUnit

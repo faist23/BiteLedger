@@ -419,9 +419,10 @@ struct LoseItEnrichmentView: View {
     private func performImport() {
         guard let csv = csvString else { return }
         isImporting = true
-        let enrichmentMap = service.buildEnrichmentMap()
-        let fatSecretMap  = service.buildFatSecretMap()
-        let manualMap     = service.buildManualMap()
+        let enrichmentMap    = service.buildEnrichmentMap()
+        let fatSecretMap     = service.buildFatSecretMap()
+        let manualMap        = service.buildManualMap()
+        let fallbackSourceMap = service.buildFallbackSourceMap()
         let ctx = modelContext
         Task {
             do {
@@ -430,6 +431,7 @@ struct LoseItEnrichmentView: View {
                     enrichmentMap: enrichmentMap,
                     fatSecretMap: fatSecretMap,
                     manualMap: manualMap,
+                    fallbackSourceMap: fallbackSourceMap,
                     context: ctx
                 )
                 await MainActor.run {

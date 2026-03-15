@@ -140,6 +140,9 @@ struct CSVImporter {
         let dateFormatter = DateFormatter()
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
 
+        // Fetch canonical foods once — used to set canonicalFoodID on new FoodItems.
+        let canonicalFoods = (try? context.fetch(FetchDescriptor<CanonicalFood>())) ?? []
+
         let minIdx = max(nameIdx, calIdx, protIdx, carbIdx, fatIdx, qtyIdx, unitsIdx, dateIdx)
 
         for (rowIndex, row) in rows.dropFirst().enumerated() {
@@ -217,6 +220,11 @@ struct CSVImporter {
                         sodium: sodPer1,
                         cholesterol: cholPer1
                     )
+                    // No gram data from LoseIt — normalize with 100g nominal (factor = 1.0)
+                    food.normalizeToPerHundredGrams(gramWeightPerServing: nil)
+                    food.canonicalFoodID = CanonicalFoodMatcher.match(
+                        foodName: name, in: canonicalFoods
+                    )?.id
                     context.insert(food)
 
                     let (servingLabel, servingUnit): (String, String?)
@@ -232,7 +240,7 @@ struct CSVImporter {
                     }
                     let serving = ServingSize(
                         label: servingLabel,
-                        gramWeight: nil,
+                        gramWeight: 100.0,
                         isDefault: true,
                         sortOrder: 0,
                         unit: servingUnit
@@ -283,6 +291,7 @@ struct CSVImporter {
         enrichmentMap: [String: USDAFoodItem],
         fatSecretMap: [String: FatSecretServingData] = [:],
         manualMap: [String: ManualNutrientOverride] = [:],
+        fallbackSourceMap: [String: FallbackSourceInfo] = [:],
         context: ModelContext
     ) throws -> ImportResult {
         var result = ImportResult()
@@ -318,6 +327,9 @@ struct CSVImporter {
         var foodCache: [String: FoodItem] = [:]
         let dateFormatter = DateFormatter()
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+
+        // Fetch canonical foods once — used to set canonicalFoodID on new FoodItems.
+        let canonicalFoodsEnriched = (try? context.fetch(FetchDescriptor<CanonicalFood>())) ?? []
 
         let minIdx = max(nameIdx, calIdx, protIdx, carbIdx, fatIdx, qtyIdx, unitsIdx, dateIdx)
 
@@ -444,6 +456,25 @@ struct CSVImporter {
                         food.caffeine   = manual.caffeine
                     }
 
+                    // Normalize to per-100g after all enrichment writes.
+                    // 100g nominal: factor = 1.0, values unchanged, mode → per100g.
+                    food.normalizeToPerHundredGrams(gramWeightPerServing: nil)
+                    food.canonicalFoodID = CanonicalFoodMatcher.match(
+                        foodName: name, in: canonicalFoodsEnriched
+                    )?.id
+
+                    // Persist a FallbackSource record so data provenance survives the import.
+                    if let info = fallbackSourceMap[cacheKey] {
+                        let source = FallbackSource(
+                            sourceType: info.sourceType,
+                            externalID: info.externalID,
+                            externalName: info.externalName,
+                            confidence: info.confidence
+                        )
+                        context.insert(source)
+                        food.fallbackSourceID = source.id
+                    }
+
                     let (servingLabel, servingUnit): (String, String?)
                     if units.isEmpty {
                         servingLabel = "1 serving"
@@ -457,7 +488,7 @@ struct CSVImporter {
                     }
                     let serving = ServingSize(
                         label: servingLabel,
-                        gramWeight: nil,
+                        gramWeight: 100.0,
                         isDefault: true,
                         sortOrder: 0,
                         unit: servingUnit
@@ -943,8 +974,8 @@ struct CSVImporter {
                     name: name,
                     brand: brand?.isEmpty == false ? brand : nil,
                     source: "CSV Import (Legacy)",
-                    nutritionMode: .perServing,
-                    calories: 0, // Placeholder - real values are in the log
+                    nutritionMode: .per100g,
+                    calories: 0, // Placeholder — nutrition is frozen in log AtLogTime fields
                     protein: 0,
                     carbs: 0,
                     fat: 0

@@ -765,6 +765,9 @@ struct ImprovedServingPicker: View {
                     }
                     .pickerStyle(.wheel)
                     .frame(maxWidth: .infinity)
+                    .onChange(of: selectedUnit) { oldUnit, newUnit in
+                        convertAmount(from: oldUnit, to: newUnit)
+                    }
                 }
                 .frame(height: 150)
                 .background(Color(.secondarySystemGroupedBackground))
@@ -996,7 +999,7 @@ struct ImprovedServingPicker: View {
                     source = "OpenFoodFacts"
                 }
 
-                // Create FoodItem with per-serving nutrition
+                // Create FoodItem — will be normalized to per-100g below
                 let servingScale = baseServingGrams.map { $0 / 100.0 } ?? 1.0
                 foodItem = FoodItem(
                     name: product.displayName,
@@ -1031,15 +1034,21 @@ struct ImprovedServingPicker: View {
                         ?? product.nutriments?.vitaminCServing.map { $0.value }
                 )
 
+                // Normalize nutrition to per-100g using the base serving gram weight.
+                // When baseServingGrams is nil (FatSecret no-gram): factor = 1.0,
+                // values are unchanged, and gramWeight is set to 100g nominal.
+                let effectiveGrams = baseServingGrams ?? 100.0
+                foodItem.normalizeToPerHundredGrams(gramWeightPerServing: baseServingGrams)
                 modelContext.insert(foodItem)
 
-                // Create default serving
+                // Create default serving — always set gramWeight so NutritionCalculator
+                // has a concrete gram anchor for every food.
                 let defaultServingUnit = ServingSizeParser.parse(baseServingDesc).flatMap {
                     $0.unit == .serving ? nil : $0.unit.rawValue
                 }
                 let defaultServing = ServingSize(
                     label: baseServingDesc,
-                    gramWeight: baseServingGrams,
+                    gramWeight: effectiveGrams,
                     isDefault: true,
                     sortOrder: 0,
                     unit: defaultServingUnit
@@ -1047,6 +1056,11 @@ struct ImprovedServingPicker: View {
                 defaultServing.foodItem = foodItem
                 modelContext.insert(defaultServing)
                 foodItem.servingSizes.append(defaultServing)
+
+                // Link to canonical food for authoritative unit→gram conversions.
+                foodItem.canonicalFoodID = CanonicalFoodMatcher.match(
+                    foodName: foodItem.name, context: modelContext
+                )?.id
 
                 // If product has USDA portions, create ServingSize entries for each
                 if let productPortions = product.portions {
@@ -1098,10 +1112,33 @@ struct ImprovedServingPicker: View {
         let addedItem = AddedFoodItem(
             foodItem: foodItem,
             servingSize: servingSize,
-            quantity: resolvedServingCount
+            quantity: resolvedServingCount,
+            loggedAmount: amountValue,
+            loggedUnit: selectedUnit.rawValue
         )
 
         onAdd(addedItem)
+    }
+
+    private func convertAmount(from oldUnit: ServingUnit, to newUnit: ServingUnit) {
+        guard oldUnit != newUnit,
+              oldUnit != .serving,
+              newUnit != .serving,
+              selectedPortion == nil else { return }
+        // Compute grams from OLD unit + current amountValue.
+        // Do NOT use totalGrams here — selectedUnit has already changed to newUnit
+        // by the time onChange fires, so totalGrams would give wrong results.
+        let density = ServingUnit.densityFor(foodType: foodType)
+        let oldGrams = oldUnit.toGrams(amount: amountValue, density: density)
+        guard oldGrams > 0 else { return }
+        let newRaw = oldGrams / newUnit.toGrams(amount: 1.0, density: density)
+        guard newRaw.isFinite, newRaw > 0 else { return }
+        let whole = max(0, Int(newRaw))
+        let fractionalPart = newRaw - Double(whole)
+        wholeNumber = whole
+        fraction = Fraction.allCases.min(by: {
+            abs($0.rawValue - fractionalPart) < abs($1.rawValue - fractionalPart)
+        }) ?? .zero
     }
 }
 

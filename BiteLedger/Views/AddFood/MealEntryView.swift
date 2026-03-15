@@ -146,7 +146,9 @@ struct MealEntryView: View {
                 quantity: item.quantity,
                 food: item.foodItem,
                 serving: item.servingSize,
-                timestamp: Date()
+                timestamp: Date(),
+                loggedAmount: item.loggedAmount,
+                loggedUnit: item.loggedUnit
             )
             modelContext.insert(foodLog)
         }
@@ -229,7 +231,9 @@ struct AddedFoodItem: Identifiable {
     let id = UUID()
     let foodItem: FoodItem
     let servingSize: ServingSize  // Which serving was selected
-    let quantity: Double  // How many of that serving (e.g., 1.5)
+    let quantity: Double          // How many of that serving (e.g., 1.5)
+    var loggedAmount: Double? = nil  // Display amount user typed (e.g., 2 for "2 cups")
+    var loggedUnit: String? = nil    // Display unit string (e.g., "cup")
 
     var calories: Double {
         let nutrition = NutritionCalculator.calculate(food: foodItem, serving: servingSize, quantity: quantity)

@@ -535,6 +535,32 @@ class LoseItEnrichmentService: ObservableObject {
         return map
     }
 
+    /// Builds a map of cacheKey → FallbackSourceInfo covering all accepted matches
+    /// (USDA autoMatched/userAccepted and FatSecret fatSecretMatched).
+    /// Passed to `CSVImporter.importLoseItEnriched` to create FallbackSource records.
+    func buildFallbackSourceMap() -> [String: FallbackSourceInfo] {
+        var map: [String: FallbackSourceInfo] = [:]
+        for match in matches {
+            if let usda = match.effectiveCandidate {
+                map[match.food.cacheKey] = FallbackSourceInfo(
+                    sourceType: "usda",
+                    externalID: String(usda.fdcId),
+                    externalName: usda.description,
+                    confidence: match.confidence
+                )
+            } else if match.status == .fatSecretMatched,
+                      let fsFood = match.fatSecretTopCandidate {
+                map[match.food.cacheKey] = FallbackSourceInfo(
+                    sourceType: "fatsecret",
+                    externalID: fsFood.foodId,
+                    externalName: fsFood.foodName,
+                    confidence: 0.0
+                )
+            }
+        }
+        return map
+    }
+
     func buildManualMap() -> [String: ManualNutrientOverride] {
         var map: [String: ManualNutrientOverride] = [:]
         for match in matches {

@@ -14,6 +14,7 @@ struct FoodItemEditorView: View {
 
     let foodItem: FoodItem
     @State private var showError = false
+    @State private var fallbackSource: FallbackSource?
 
     // Basic info
     @State private var foodName: String
@@ -181,6 +182,12 @@ struct FoodItemEditorView: View {
                 }
             } message: {
                 Text("This food item has been deleted.")
+            }
+            .task {
+                guard let sourceID = foodItem.fallbackSourceID else { return }
+                fallbackSource = try? modelContext.fetch(
+                    FetchDescriptor<FallbackSource>(predicate: #Predicate { $0.id == sourceID })
+                ).first
             }
         }
     }
@@ -557,6 +564,22 @@ struct FoodItemEditorView: View {
                     Spacer()
                     Text(foodItem.source)
                         .foregroundStyle(.secondary)
+                }
+
+                if let source = fallbackSource {
+                    HStack {
+                        Text("Enriched from")
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(source.displayLabel)
+                                .foregroundStyle(.secondary)
+                            if let conf = source.confidenceLabel {
+                                Text(conf)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
                 }
 
                 HStack {

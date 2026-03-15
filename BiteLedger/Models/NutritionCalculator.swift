@@ -19,9 +19,22 @@ import Foundation
 //   - Extensions never calculate nutrition
 //   - Only this file calculates nutrition
 //
+// Single formula (Phase 2+):
+//   nutrition = (gramAmount / 100) × nutrientPer100g
+//
+// gramAmount is the number of grams consumed. For all foods:
+//   - per100g foods with gramWeight:  gramAmount = quantity × gramWeight
+//   - perServing foods (transitional): gramAmount = quantity × 100 (nominal, until Phase 3 normalizes)
+//
 // Usage:
-//   let result = NutritionCalculator.calculate(food: food, serving: serving, quantity: 1.5)
-//   label.text = "\(result.calories) kcal"
+//   // From a log already created:
+//   let result = NutritionCalculator.fromLog(log)
+//
+//   // Live preview in a picker (not stored):
+//   let result = NutritionCalculator.preview(food: food, serving: serving, quantity: 1.5)
+//
+//   // Creating a new FoodLog (pass pre-computed gramAmount):
+//   let result = NutritionCalculator.calculate(food: food, gramAmount: 240.0)
 
 struct NutritionCalculator {
 
@@ -93,6 +106,39 @@ struct NutritionCalculator {
             )
         }
 
+        /// Scales all nutrition values by a factor (e.g., 1/yield for per-serving conversion).
+        func scaled(by factor: Double) -> Result {
+            Result(
+                calories:            calories * factor,
+                protein:             protein * factor,
+                carbs:               carbs * factor,
+                fat:                 fat * factor,
+                fiber:               fiber.map { $0 * factor },
+                sugar:               sugar.map { $0 * factor },
+                saturatedFat:        saturatedFat.map { $0 * factor },
+                transFat:            transFat.map { $0 * factor },
+                monounsaturatedFat:  monounsaturatedFat.map { $0 * factor },
+                polyunsaturatedFat:  polyunsaturatedFat.map { $0 * factor },
+                sodium:              sodium.map { $0 * factor },
+                cholesterol:         cholesterol.map { $0 * factor },
+                potassium:           potassium.map { $0 * factor },
+                calcium:             calcium.map { $0 * factor },
+                iron:                iron.map { $0 * factor },
+                magnesium:           magnesium.map { $0 * factor },
+                zinc:                zinc.map { $0 * factor },
+                vitaminA:            vitaminA.map { $0 * factor },
+                vitaminC:            vitaminC.map { $0 * factor },
+                vitaminD:            vitaminD.map { $0 * factor },
+                vitaminE:            vitaminE.map { $0 * factor },
+                vitaminK:            vitaminK.map { $0 * factor },
+                vitaminB6:           vitaminB6.map { $0 * factor },
+                vitaminB12:          vitaminB12.map { $0 * factor },
+                folate:              folate.map { $0 * factor },
+                choline:             choline.map { $0 * factor },
+                caffeine:            caffeine.map { $0 * factor }
+            )
+        }
+
         private static func add(_ a: Double?, _ b: Double?) -> Double? {
             switch (a, b) {
             case let (x?, y?): return x + y
@@ -103,41 +149,51 @@ struct NutritionCalculator {
         }
     }
 
-    // MARK: - Calculate from FoodItem + ServingSize
+    // MARK: - Primary Calculation (gram-based)
 
-    /// The primary calculation method. Call this when creating a new FoodLog.
+    /// The canonical calculation method. Call this when creating a new FoodLog.
+    ///
+    /// Single formula: `(gramAmount / 100) × nutrientPer100g`
+    ///
+    /// All FoodItem nutrition fields store per-100g values. For perServing foods that
+    /// haven't been normalized yet (Phase 3), gramAmount is computed as quantity × 100
+    /// (nominal), which preserves the same result as the legacy perServing formula.
     ///
     /// - Parameters:
-    ///   - food: The FoodItem being logged.
-    ///   - serving: The ServingSize selected. nil = use food's default serving.
-    ///   - quantity: Number of servings (e.g., 1.5 = one and a half servings).
-    /// - Returns: Calculated nutrition for the full quantity.
-    static func calculate(
-        food: FoodItem,
-        serving: ServingSize?,
-        quantity: Double
-    ) -> Result {
-        guard quantity > 0 else { return .zero }
-
-        let resolvedServing = serving ?? food.defaultServing
-
-        switch food.nutritionMode {
-
-        case .per100g:
-            // Need gram weight to calculate correctly
-            if let grams = resolvedServing?.gramWeight {
-                return scaledPer100g(food: food, grams: grams, quantity: quantity)
-            } else {
-                // per100g food but no gram weight available.
-                // This should not happen for properly imported foods.
-                // Fall through to perServing as a safe fallback.
-                return scaledPerServing(food: food, quantity: quantity)
-            }
-
-        case .perServing:
-            // Nutrition values ARE the per-serving values. Scale by quantity only.
-            return scaledPerServing(food: food, quantity: quantity)
-        }
+    ///   - food:       The FoodItem. All nutrition fields are treated as per-100g.
+    ///   - gramAmount: Total grams consumed (quantity × serving gramWeight, or estimated).
+    static func calculate(food: FoodItem, gramAmount: Double) -> Result {
+        guard gramAmount > 0 else { return .zero }
+        let factor = gramAmount / 100.0
+        return Result(
+            calories:            food.calories * factor,
+            protein:             food.protein * factor,
+            carbs:               food.carbs * factor,
+            fat:                 food.fat * factor,
+            fiber:               food.fiber.map { $0 * factor },
+            sugar:               food.sugar.map { $0 * factor },
+            saturatedFat:        food.saturatedFat.map { $0 * factor },
+            transFat:            food.transFat.map { $0 * factor },
+            monounsaturatedFat:  food.monounsaturatedFat.map { $0 * factor },
+            polyunsaturatedFat:  food.polyunsaturatedFat.map { $0 * factor },
+            sodium:              food.sodium.map { $0 * factor },
+            cholesterol:         food.cholesterol.map { $0 * factor },
+            potassium:           food.potassium.map { $0 * factor },
+            calcium:             food.calcium.map { $0 * factor },
+            iron:                food.iron.map { $0 * factor },
+            magnesium:           food.magnesium.map { $0 * factor },
+            zinc:                food.zinc.map { $0 * factor },
+            vitaminA:            food.vitaminA.map { $0 * factor },
+            vitaminC:            food.vitaminC.map { $0 * factor },
+            vitaminD:            food.vitaminD.map { $0 * factor },
+            vitaminE:            food.vitaminE.map { $0 * factor },
+            vitaminK:            food.vitaminK.map { $0 * factor },
+            vitaminB6:           food.vitaminB6.map { $0 * factor },
+            vitaminB12:          food.vitaminB12.map { $0 * factor },
+            folate:              food.folate.map { $0 * factor },
+            choline:             food.choline.map { $0 * factor },
+            caffeine:            food.caffeine.map { $0 * factor }
+        )
     }
 
     // MARK: - Calculate from FoodLog (reads frozen values)
@@ -193,87 +249,90 @@ struct NutritionCalculator {
 
     // MARK: - Preview (for serving pickers, before logging)
 
-    /// Calculates nutrition for display in a serving picker.
+    /// Calculates nutrition for display in a serving picker or live edit view.
     /// This result is NOT stored — it's only for live preview in the UI.
+    ///
+    /// Computes gramAmount from serving + quantity, then delegates to `calculate(food:gramAmount:)`.
     static func preview(
         food: FoodItem,
         serving: ServingSize?,
         quantity: Double
     ) -> Result {
-        calculate(food: food, serving: serving, quantity: quantity)
+        let gramAmount = resolveGramAmount(food: food, serving: serving, quantity: quantity)
+        return calculate(food: food, gramAmount: gramAmount)
+    }
+
+    /// Transitional alias so existing view callers of `calculate(food:serving:quantity:)`
+    /// continue to compile unchanged. Equivalent to `preview()`.
+    ///
+    /// Prefer `preview()` at call sites — the name makes clear the result is not stored.
+    static func calculate(
+        food: FoodItem,
+        serving: ServingSize?,
+        quantity: Double
+    ) -> Result {
+        preview(food: food, serving: serving, quantity: quantity)
+    }
+
+    // MARK: - Recipe Nutrition
+
+    /// Calculates per-serving nutrition for a recipe by summing all ingredients
+    /// and dividing by the recipe's servings yield.
+    ///
+    /// Call this when saving or editing a recipe to write nutrition onto its FoodItem.
+    /// Ingredients whose `foodItem` is nil (deleted food) are skipped.
+    ///
+    /// - Parameters:
+    ///   - ingredients: The recipe's ingredient list.
+    ///   - yield: How many servings the recipe makes.
+    /// - Returns: Per-serving nutrition for the whole recipe.
+    static func calculateRecipeNutrition(
+        ingredients: [RecipeIngredient],
+        yield: Double
+    ) -> Result {
+        guard yield > 0 else { return .zero }
+        let total = ingredients.reduce(Result.zero) { sum, ingredient in
+            guard let food = ingredient.foodItem else { return sum }
+            return sum + preview(food: food, serving: ingredient.servingSize, quantity: ingredient.quantity)
+        }
+        return total.scaled(by: 1.0 / yield)
     }
 
     // MARK: - Private Helpers
 
-    private static func scaledPer100g(
+    /// Converts food + serving + quantity into a gram amount for `calculate(food:gramAmount:)`.
+    ///
+    /// Resolution order:
+    ///   1. serving.gramWeight (or defaultServing.gramWeight) × quantity — exact
+    ///   2. Density table estimate when unit is known but gramWeight is nil
+    ///   3. quantity × 100 nominal (perServing foods without gram data, until Phase 3)
+    ///
+    /// Called by `FoodLog.create()` and `preview()`. Not private so the factory can call it.
+    static func resolveGramAmount(
         food: FoodItem,
-        grams: Double,
+        serving: ServingSize?,
         quantity: Double
-    ) -> Result {
-        let factor = (grams / 100.0) * quantity
-        return Result(
-            calories:            food.calories * factor,
-            protein:             food.protein * factor,
-            carbs:               food.carbs * factor,
-            fat:                 food.fat * factor,
-            fiber:               food.fiber.map { $0 * factor },
-            sugar:               food.sugar.map { $0 * factor },
-            saturatedFat:        food.saturatedFat.map { $0 * factor },
-            transFat:            food.transFat.map { $0 * factor },
-            monounsaturatedFat:  food.monounsaturatedFat.map { $0 * factor },
-            polyunsaturatedFat:  food.polyunsaturatedFat.map { $0 * factor },
-            sodium:              food.sodium.map { $0 * factor },
-            cholesterol:         food.cholesterol.map { $0 * factor },
-            potassium:           food.potassium.map { $0 * factor },
-            calcium:             food.calcium.map { $0 * factor },
-            iron:                food.iron.map { $0 * factor },
-            magnesium:           food.magnesium.map { $0 * factor },
-            zinc:                food.zinc.map { $0 * factor },
-            vitaminA:            food.vitaminA.map { $0 * factor },
-            vitaminC:            food.vitaminC.map { $0 * factor },
-            vitaminD:            food.vitaminD.map { $0 * factor },
-            vitaminE:            food.vitaminE.map { $0 * factor },
-            vitaminK:            food.vitaminK.map { $0 * factor },
-            vitaminB6:           food.vitaminB6.map { $0 * factor },
-            vitaminB12:          food.vitaminB12.map { $0 * factor },
-            folate:              food.folate.map { $0 * factor },
-            choline:             food.choline.map { $0 * factor },
-            caffeine:            food.caffeine.map { $0 * factor }
-        )
-    }
+    ) -> Double {
+        guard quantity > 0 else { return 0 }
+        let resolvedServing = serving ?? food.defaultServing
 
-    private static func scaledPerServing(
-        food: FoodItem,
-        quantity: Double
-    ) -> Result {
-        Result(
-            calories:            food.calories * quantity,
-            protein:             food.protein * quantity,
-            carbs:               food.carbs * quantity,
-            fat:                 food.fat * quantity,
-            fiber:               food.fiber.map { $0 * quantity },
-            sugar:               food.sugar.map { $0 * quantity },
-            saturatedFat:        food.saturatedFat.map { $0 * quantity },
-            transFat:            food.transFat.map { $0 * quantity },
-            monounsaturatedFat:  food.monounsaturatedFat.map { $0 * quantity },
-            polyunsaturatedFat:  food.polyunsaturatedFat.map { $0 * quantity },
-            sodium:              food.sodium.map { $0 * quantity },
-            cholesterol:         food.cholesterol.map { $0 * quantity },
-            potassium:           food.potassium.map { $0 * quantity },
-            calcium:             food.calcium.map { $0 * quantity },
-            iron:                food.iron.map { $0 * quantity },
-            magnesium:           food.magnesium.map { $0 * quantity },
-            zinc:                food.zinc.map { $0 * quantity },
-            vitaminA:            food.vitaminA.map { $0 * quantity },
-            vitaminC:            food.vitaminC.map { $0 * quantity },
-            vitaminD:            food.vitaminD.map { $0 * quantity },
-            vitaminE:            food.vitaminE.map { $0 * quantity },
-            vitaminK:            food.vitaminK.map { $0 * quantity },
-            vitaminB6:           food.vitaminB6.map { $0 * quantity },
-            vitaminB12:          food.vitaminB12.map { $0 * quantity },
-            folate:              food.folate.map { $0 * quantity },
-            choline:             food.choline.map { $0 * quantity },
-            caffeine:            food.caffeine.map { $0 * quantity }
-        )
+        // Path 1: gram weight known — exact
+        if let gw = resolvedServing?.gramWeight {
+            return quantity * gw
+        }
+
+        // Path 2: unit known — density estimate
+        let unitStr = resolvedServing?.unit
+        if let unitStr,
+           let su = ServingUnit.fromAbbreviation(unitStr),
+           su != .serving, su != .container {
+            let amount = resolvedServing?.amount ?? 1.0
+            let density = ServingUnit.densityFor(foodType: FoodType.infer(from: food.name))
+            return su.toGrams(amount: amount * quantity, density: density)
+        }
+
+        // Path 3: no gram data — 100g/serving nominal (perServing transitional)
+        // Math: (quantity × 100 / 100) × nutrient = quantity × nutrient ≡ old scaledPerServing
+        return quantity * 100.0
     }
 }

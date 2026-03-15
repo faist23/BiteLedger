@@ -21,8 +21,13 @@ final class ServingSize {
     // MARK: Display
     /// Human-readable label shown in the UI.
     /// Examples: "1 cup", "1 medium banana", "1 sandwich", "2 cookies", "1 slice"
-    /// The quantity is baked into the label — do NOT store quantity separately.
+    /// Kept for display and backward compatibility. `amount` + `unit` are the source of truth.
     var label: String = ""
+
+    /// The numeric amount for this serving (e.g. 1 for "1 cup", 2 for "2 cookies", 8 for "8 fl oz").
+    /// Defaults to 1.0. Backfilled from label by `backfillServingAmounts()` on first launch.
+    /// gramsPerUnit = gramWeight / amount (when both are set).
+    var amount: Double = 1.0
 
     /// Weight in grams for this serving. nil when unknown or not applicable.
     ///
@@ -58,7 +63,8 @@ final class ServingSize {
         isDefault: Bool = false,
         sortOrder: Int = 0,
         dateAdded: Date = Date(),
-        unit: String? = nil
+        unit: String? = nil,
+        amount: Double = 1.0
     ) {
         self.id = id
         self.label = label
@@ -67,9 +73,18 @@ final class ServingSize {
         self.sortOrder = sortOrder
         self.dateAdded = dateAdded
         self.unit = unit
+        self.amount = amount
     }
 
     // MARK: Computed
+
+    /// Grams per single unit of this serving.
+    /// e.g. for "2 cookies (30g)": gramWeight=30, amount=2 → gramsPerUnit=15
+    /// nil when gramWeight is unknown.
+    var gramsPerUnit: Double? {
+        guard let gw = gramWeight, amount > 0 else { return nil }
+        return gw / amount
+    }
 
     /// Supplementary display string showing gram weight if known.
     /// Example: "1 cup (42g)" or just "1 sandwich"

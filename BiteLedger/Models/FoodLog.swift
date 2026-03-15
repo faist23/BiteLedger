@@ -20,8 +20,23 @@ final class FoodLog {
     var mealType: MealType = MealType.breakfast
 
     // MARK: Quantity
+
     /// Number of servings logged. e.g., 1.5 means 1.5 × the selected ServingSize.
+    /// DEPRECATED: Use gramAmount for all new nutrition math. Kept for migration backfill.
     var quantity: Double = 1
+
+    /// Grams consumed. This is the canonical amount stored in every log entry.
+    /// Set once by FoodLog.create() and never recalculated.
+    /// Formula: gramAmount = servingSize.gramWeight × quantity (or density estimate when gramWeight is nil)
+    var gramAmount: Double = 0
+
+    /// The numeric amount the user typed in the serving picker (e.g. 3 for "3 tbsp").
+    /// Stored for display only — nutrition is always calculated from gramAmount.
+    var loggedAmount: Double? = nil
+
+    /// The unit string the user selected (e.g. "tbsp", "cup", "oz").
+    /// Stored for display only — nutrition is always calculated from gramAmount.
+    var loggedUnit: String? = nil
 
     // MARK: Relationships
     /// The food that was eaten. Nullified (not deleted) if food is removed.
@@ -73,6 +88,9 @@ final class FoodLog {
         timestamp: Date = Date(),
         mealType: MealType,
         quantity: Double,
+        gramAmount: Double = 0,
+        loggedAmount: Double? = nil,
+        loggedUnit: String? = nil,
         foodItem: FoodItem? = nil,
         servingSize: ServingSize? = nil,
         caloriesAtLogTime: Double,
@@ -107,6 +125,9 @@ final class FoodLog {
         self.timestamp = timestamp
         self.mealType = mealType
         self.quantity = quantity
+        self.gramAmount = gramAmount
+        self.loggedAmount = loggedAmount
+        self.loggedUnit = loggedUnit
         self.foodItem = foodItem
         self.servingSize = servingSize
         self.caloriesAtLogTime = caloriesAtLogTime
@@ -145,75 +166,31 @@ final class FoodLog {
     }
 
     var quantityDescription: String {
-        // Calculate the actual gram amount if we have gram weight
-        if let gramWeight = servingSize?.gramWeight {
-            let totalGrams = quantity * gramWeight
-            
-            // Format total grams nicely
-            let gramsText = totalGrams.truncatingRemainder(dividingBy: 1) == 0
-                ? String(Int(totalGrams))
-                : String(format: "%.1f", totalGrams)
-            
-            // If serving label is just a unit (g, oz, cup, etc.), show as "88 g" not "88 × g"
-            let label = servingLabel.lowercased()
-            if label == "g" || label == "oz" || label == "cup" || label == "tbsp" || label == "tsp" || label == "ml" {
-                return "\(gramsText) \(label)"
-            }
-            
-            // If serving label already includes a number (like "8 fl oz"), scale it
-            if let firstChar = servingLabel.first, firstChar.isNumber {
-                if quantity == 1.0 {
-                    return servingLabel
-                } else if let spaceIdx = servingLabel.firstIndex(of: " "),
-                          let labelAmount = Double(servingLabel[servingLabel.startIndex..<spaceIdx]) {
-                    // e.g. quantity=0.5, label="8 fl oz" → "4 fl oz"
-                    let scaled = labelAmount * quantity
-                    let unitPart = String(servingLabel[servingLabel.index(after: spaceIdx)...])
-                    let scaledText = scaled.truncatingRemainder(dividingBy: 1) == 0
-                        ? String(Int(scaled))
-                        : String(format: "%.4g", scaled)
-                    return "\(scaledText) \(unitPart)"
-                } else {
-                    let q = quantity.truncatingRemainder(dividingBy: 1) == 0
-                        ? String(Int(quantity))
-                        : String(format: "%.2g", quantity)
-                    return "\(q) \(servingLabel)"
-                }
-            }
-            
-            // For custom portion names (like "cup", "bowl", "slice"), show with multiplier
+        // Format a Double for display: integer if whole, otherwise up to 2 decimal places,
+        // no trailing zeros, no scientific notation.
+        func fmt(_ v: Double) -> String {
+            if v.truncatingRemainder(dividingBy: 1) == 0 { return String(Int(v)) }
+            let s = String(format: "%.2f", v)
+            return s.replacingOccurrences(of: #"\.?0+$"#, with: "", options: .regularExpression)
+        }
+
+        // If label already includes a number (e.g. "1 cup (42g)", "8 fl oz"), scale it.
+        // e.g. quantity=1.5, label="1 cup (42g)" → "1.5 cup (42g)"
+        if let firstChar = servingLabel.first, firstChar.isNumber {
             if quantity == 1.0 {
                 return servingLabel
+            } else if let spaceIdx = servingLabel.firstIndex(of: " "),
+                      let labelAmount = Double(servingLabel[servingLabel.startIndex..<spaceIdx]) {
+                let unitPart = String(servingLabel[servingLabel.index(after: spaceIdx)...])
+                return "\(fmt(labelAmount * quantity)) \(unitPart)"
             } else {
-                let q = quantity.truncatingRemainder(dividingBy: 1) == 0
-                    ? String(Int(quantity))
-                    : String(format: "%.2g", quantity)
-                return "\(q) \(servingLabel)"
+                return "\(fmt(quantity)) \(servingLabel)"
             }
         }
-        
-        // No gram weight - fallback to simple quantity and serving
-        if quantity == 1.0 {
-            return servingLabel
-        }
 
-        // If label starts with a number (e.g., "8 fl oz"), scale it by quantity
-        // so "0.5 × 8 fl oz" displays as "4 fl oz"
-        if let firstChar = servingLabel.first, firstChar.isNumber,
-           let spaceIdx = servingLabel.firstIndex(of: " "),
-           let labelAmount = Double(servingLabel[servingLabel.startIndex..<spaceIdx]) {
-            let scaled = labelAmount * quantity
-            let unitPart = String(servingLabel[servingLabel.index(after: spaceIdx)...])
-            let scaledText = scaled.truncatingRemainder(dividingBy: 1) == 0
-                ? String(Int(scaled))
-                : String(format: "%.4g", scaled)
-            return "\(scaledText) \(unitPart)"
-        }
-
-        let q = quantity.truncatingRemainder(dividingBy: 1) == 0
-            ? String(Int(quantity))
-            : String(format: "%.2g", quantity)
-        return "\(q) \(servingLabel)"
+        // Bare unit or named serving (e.g. "cup", "g", "fl oz", "slice").
+        if quantity == 1.0 { return servingLabel }
+        return "\(fmt(quantity)) \(servingLabel)"
     }
 }
 
@@ -222,23 +199,34 @@ final class FoodLog {
 extension FoodLog {
     /// Creates a FoodLog and freezes nutrition at creation time.
     /// This is the ONLY way a FoodLog should be created.
+    ///
+    /// - Parameters:
+    ///   - loggedAmount: The numeric amount the user typed (e.g. 3 for "3 tbsp"). Stored for display.
+    ///   - loggedUnit:   The unit the user selected (e.g. "tbsp"). Stored for display.
     static func create(
         mealType: MealType,
         quantity: Double,
         food: FoodItem,
         serving: ServingSize?,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        loggedAmount: Double? = nil,
+        loggedUnit: String? = nil
     ) -> FoodLog {
-        let nutrition = NutritionCalculator.calculate(
-            food: food,
-            serving: serving,
-            quantity: quantity
-        )
+        // Resolve gram amount via the calculator's canonical resolution logic.
+        let gramAmount = NutritionCalculator.resolveGramAmount(food: food, serving: serving, quantity: quantity)
+
+        // Freeze nutrition using the single gram-based formula.
+        let nutrition = NutritionCalculator.calculate(food: food, gramAmount: gramAmount)
+
+        let resolvedServing = serving ?? food.defaultServing
 
         return FoodLog(
             timestamp: timestamp,
             mealType: mealType,
             quantity: quantity,
+            gramAmount: gramAmount,
+            loggedAmount: loggedAmount ?? quantity,
+            loggedUnit: loggedUnit ?? resolvedServing?.unit,
             foodItem: food,
             servingSize: serving,
             caloriesAtLogTime: nutrition.calories,

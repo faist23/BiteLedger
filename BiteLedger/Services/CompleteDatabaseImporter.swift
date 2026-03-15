@@ -87,10 +87,14 @@ struct CompleteDatabaseImporter {
 
         var importedFoods: [FoodItem] = []
 
+        // Fetch canonical foods once for all food creation in this import.
+        let canonicalFoods = (try? modelContext.fetch(FetchDescriptor<CanonicalFood>())) ?? []
+
         for (index, line) in lines.dropFirst().enumerated() {
             do {
                 let columns = parseCSVLine(line)
                 let food = try createFoodItem(from: columns, columnMap: columnMap, modelContext: modelContext)
+                food.canonicalFoodID = CanonicalFoodMatcher.match(foodName: food.name, in: canonicalFoods)?.id
                 modelContext.insert(food)
                 importedFoods.append(food)
 
@@ -148,8 +152,9 @@ struct CompleteDatabaseImporter {
 
         let source = getValue(from: columns, columnMap: columnMap, key: "source") ?? "CSV Import"
 
-        // Old exports were per-serving, but new architecture defaults to per-100g
-        // We'll import as perServing since that's what the old data was
+        // Old exports stored per-serving values. Normalize at import time so all foods
+        // are per-100g. servingGrams is read from the serving data by the caller, but
+        // this importer doesn't have gram data, so use 100g nominal (factor = 1.0).
         let food = FoodItem(
             name: name,
             brand: brand?.isEmpty == false ? brand : nil,
@@ -183,6 +188,8 @@ struct CompleteDatabaseImporter {
             choline: choline,
             caffeine: caffeine
         )
+        // Normalize to per-100g using 100g nominal (no gram data available in this importer).
+        food.normalizeToPerHundredGrams(gramWeightPerServing: nil)
 
         return food
     }
